@@ -59,7 +59,7 @@ use tools::{
     execute_tool, mvp_tool_specs, GlobalToolRegistry, RuntimeToolDefinition, ToolSearchOutput,
 };
 
-const DEFAULT_MODEL: &str = "claude-opus-4-6";
+const DEFAULT_MODEL: &str = "ollama/gemma4:latest";
 fn max_tokens_for_model(model: &str) -> u32 {
     if model.contains("opus") {
         32_000
@@ -1060,13 +1060,14 @@ fn permission_mode_from_resolved(mode: ResolvedPermissionMode) -> PermissionMode
 }
 
 fn default_permission_mode() -> PermissionMode {
-    env::var("RUSTY_CLAUDE_PERMISSION_MODE")
+    env::var("AGCLI_PERMISSION_MODE")
         .ok()
+        .or_else(|| env::var("RUSTY_CLAUDE_PERMISSION_MODE").ok())
         .as_deref()
         .and_then(normalize_permission_mode)
         .map(permission_mode_from_label)
         .or_else(config_permission_mode_for_current_dir)
-        .unwrap_or(PermissionMode::DangerFullAccess)
+        .unwrap_or(PermissionMode::WorkspaceWrite)
 }
 
 fn config_permission_mode_for_current_dir() -> Option<PermissionMode> {
@@ -1089,8 +1090,9 @@ fn resolve_repl_model(cli_model: String) -> String {
     if cli_model != DEFAULT_MODEL {
         return cli_model;
     }
-    if let Some(env_model) = env::var("ANTHROPIC_MODEL")
+    if let Some(env_model) = env::var("AGCLI_MODEL")
         .ok()
+        .or_else(|| env::var("ANTHROPIC_MODEL").ok())
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
     {
@@ -1104,6 +1106,7 @@ fn resolve_repl_model(cli_model: String) -> String {
 
 fn provider_label(kind: ProviderKind) -> &'static str {
     match kind {
+        ProviderKind::Local => "local",
         ProviderKind::Anthropic => "anthropic",
         ProviderKind::Xai => "xai",
         ProviderKind::OpenAi => "openai",
@@ -6757,6 +6760,10 @@ impl AnthropicRuntimeClient {
         // skip it.
         let resolved_model = api::resolve_model_alias(&model);
         let client = match detect_provider_kind(&resolved_model) {
+            ProviderKind::Local => ApiProviderClient::from_model_with_anthropic_auth(
+                &resolved_model,
+                None,
+            )?,
             ProviderKind::Anthropic => {
                 let auth = resolve_cli_auth_source()?;
                 let inner = AnthropicClient::from_auth(auth)

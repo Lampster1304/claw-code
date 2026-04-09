@@ -1,6 +1,6 @@
-# 🦞 Claw Code — Rust Implementation
+# AGCLI — Rust Implementation
 
-A high-performance Rust rewrite of the Claw Code CLI agent harness. Built for speed, safety, and native tool execution.
+A high-performance Rust workspace for AGCLI. The immediate target is a local-first agent CLI with Ollama support.
 
 For a task-oriented guide with copy/paste examples, see [`../USAGE.md`](../USAGE.md).
 

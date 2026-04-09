@@ -1,4 +1,4 @@
-# Claw Code Usage
+# AGCLI Usage
 
 This guide covers the current Rust workspace under `rust/` and the `claw` CLI binary. If you are brand new, make the doctor health check your first run: start `claw`, then run `/doctor`.
 
