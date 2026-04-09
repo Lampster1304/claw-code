@@ -24,6 +24,18 @@ impl ModelPricing {
             cache_read_cost_per_million: DEFAULT_CACHE_READ_COST_PER_MILLION,
         }
     }
+
+    /// Zero-cost pricing tier for self-hosted / local models (Ollama, llama.cpp, …)
+    /// where inference does not have a per-token dollar cost.
+    #[must_use]
+    pub const fn free() -> Self {
+        Self {
+            input_cost_per_million: 0.0,
+            output_cost_per_million: 0.0,
+            cache_creation_cost_per_million: 0.0,
+            cache_read_cost_per_million: 0.0,
+        }
+    }
 }
 
 /// Token counters accumulated for a conversation turn or session.
@@ -58,6 +70,9 @@ impl UsageCostEstimate {
 #[must_use]
 pub fn pricing_for_model(model: &str) -> Option<ModelPricing> {
     let normalized = model.to_ascii_lowercase();
+    if normalized.starts_with("ollama/") || normalized.starts_with("local/") {
+        return Some(ModelPricing::free());
+    }
     if normalized.contains("haiku") {
         return Some(ModelPricing {
             input_cost_per_million: 1.0,

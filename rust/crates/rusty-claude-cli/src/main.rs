@@ -1070,6 +1070,26 @@ fn default_permission_mode() -> PermissionMode {
         .unwrap_or(PermissionMode::WorkspaceWrite)
 }
 
+/// The default tool allow-list injected when the active provider is Local
+/// (Ollama) and the caller did not pass `--allowedTools`. The full built-in
+/// registry exposes ~48 tools; small local models get overwhelmed by that
+/// surface, so we advertise only the core file-and-shell loop that an agent
+/// actually needs for code tasks. Callers can always override with
+/// `--allowedTools` to opt into the full set.
+fn default_local_tool_set() -> AllowedToolSet {
+    [
+        "read_file",
+        "write_file",
+        "edit_file",
+        "glob_search",
+        "grep_search",
+        "bash",
+    ]
+    .into_iter()
+    .map(ToString::to_string)
+    .collect()
+}
+
 fn config_permission_mode_for_current_dir() -> Option<PermissionMode> {
     let cwd = env::current_dir().ok()?;
     let loader = ConfigLoader::default_for(&cwd);
@@ -6759,7 +6779,16 @@ impl AnthropicRuntimeClient {
         // prompt cache is Anthropic-only so non-Anthropic variants
         // skip it.
         let resolved_model = api::resolve_model_alias(&model);
-        let client = match detect_provider_kind(&resolved_model) {
+        let provider_kind = detect_provider_kind(&resolved_model);
+        // Small local models get confused by the full ~48-tool built-in
+        // registry, so when the provider is Local and the caller did not
+        // pass an explicit --allowedTools, narrow the advertised surface
+        // to the core file-and-shell agent loop.
+        let allowed_tools = match (provider_kind, allowed_tools) {
+            (ProviderKind::Local, None) => Some(default_local_tool_set()),
+            (_, other) => other,
+        };
+        let client = match provider_kind {
             ProviderKind::Local => ApiProviderClient::from_model_with_anthropic_auth(
                 &resolved_model,
                 None,
@@ -8584,12 +8613,13 @@ mod tests {
     fn defaults_to_repl_when_no_args() {
         let _guard = env_lock();
         std::env::remove_var("RUSTY_CLAUDE_PERMISSION_MODE");
+        std::env::remove_var("AGCLI_PERMISSION_MODE");
         assert_eq!(
             parse_args(&[]).expect("args should parse"),
             CliAction::Repl {
                 model: DEFAULT_MODEL.to_string(),
                 allowed_tools: None,
-                permission_mode: PermissionMode::DangerFullAccess,
+                permission_mode: PermissionMode::WorkspaceWrite,
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
@@ -8753,7 +8783,7 @@ mod tests {
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
                 allowed_tools: None,
-                permission_mode: PermissionMode::DangerFullAccess,
+                permission_mode: PermissionMode::WorkspaceWrite,
                 compact: false,
                 base_commit: None,
                 reasoning_effort: None,
@@ -8844,7 +8874,7 @@ mod tests {
                 model: "claude-opus".to_string(),
                 output_format: CliOutputFormat::Json,
                 allowed_tools: None,
-                permission_mode: PermissionMode::DangerFullAccess,
+                permission_mode: PermissionMode::WorkspaceWrite,
                 compact: false,
                 base_commit: None,
                 reasoning_effort: None,
@@ -8875,7 +8905,7 @@ mod tests {
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
                 allowed_tools: None,
-                permission_mode: PermissionMode::DangerFullAccess,
+                permission_mode: PermissionMode::WorkspaceWrite,
                 compact: true,
                 base_commit: None,
                 reasoning_effort: None,
@@ -8918,7 +8948,7 @@ mod tests {
                 model: "claude-opus-4-6".to_string(),
                 output_format: CliOutputFormat::Text,
                 allowed_tools: None,
-                permission_mode: PermissionMode::DangerFullAccess,
+                permission_mode: PermissionMode::WorkspaceWrite,
                 compact: false,
                 base_commit: None,
                 reasoning_effort: None,
@@ -9061,6 +9091,7 @@ mod tests {
     fn parses_allowed_tools_flags_with_aliases_and_lists() {
         let _guard = env_lock();
         std::env::remove_var("RUSTY_CLAUDE_PERMISSION_MODE");
+        std::env::remove_var("AGCLI_PERMISSION_MODE");
         let args = vec![
             "--allowedTools".to_string(),
             "read,glob".to_string(),
@@ -9076,7 +9107,7 @@ mod tests {
                         .map(str::to_string)
                         .collect()
                 ),
-                permission_mode: PermissionMode::DangerFullAccess,
+                permission_mode: PermissionMode::WorkspaceWrite,
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
@@ -9242,7 +9273,7 @@ mod tests {
             parse_args(&["status".to_string()]).expect("status should parse"),
             CliAction::Status {
                 model: DEFAULT_MODEL.to_string(),
-                permission_mode: PermissionMode::DangerFullAccess,
+                permission_mode: PermissionMode::WorkspaceWrite,
                 output_format: CliOutputFormat::Text,
             }
         );
