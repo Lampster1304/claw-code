@@ -59,7 +59,7 @@ use tools::{
     execute_tool, mvp_tool_specs, GlobalToolRegistry, RuntimeToolDefinition, ToolSearchOutput,
 };
 
-const DEFAULT_MODEL: &str = "ollama/gemma4:latest";
+const DEFAULT_MODEL: &str = "ollama/qwen3:8b";
 fn max_tokens_for_model(model: &str) -> u32 {
     if model.contains("opus") {
         32_000
