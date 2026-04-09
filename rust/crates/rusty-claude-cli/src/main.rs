@@ -1544,8 +1544,61 @@ fn run_mcp_serve() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Decide whether the doctor/health path should treat this invocation as
+/// "local-only" — i.e. backed by Ollama (or another local provider) so the
+/// Anthropic / OpenAI credential checks should be short-circuited instead
+/// of reporting a false "missing credentials" warning. Honours the
+/// AGCLI_LOCAL_PROVIDER / OLLAMA_HOST env vars, the AGCLI_MODEL /
+/// ANTHROPIC_MODEL overrides, and the compiled-in DEFAULT_MODEL.
+fn effective_provider_is_local() -> bool {
+    if api::local_provider_enabled() {
+        return true;
+    }
+    let effective_model = env::var("AGCLI_MODEL")
+        .ok()
+        .or_else(|| env::var("ANTHROPIC_MODEL").ok())
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| DEFAULT_MODEL.to_string());
+    matches!(
+        detect_provider_kind(&api::resolve_model_alias(&effective_model)),
+        ProviderKind::Local
+    )
+}
+
 #[allow(clippy::too_many_lines)]
 fn check_auth_health() -> DiagnosticCheck {
+    // Local-only short circuit: when the effective provider is Ollama we
+    // never need an Anthropic API key, an OAuth token, or a saved
+    // credential blob, so report a clean OK instead of a misleading
+    // "absent" warning.
+    if effective_provider_is_local() {
+        let base_url = env::var("AGCLI_LOCAL_BASE_URL")
+            .ok()
+            .or_else(|| env::var("OLLAMA_HOST").ok())
+            .filter(|v| !v.trim().is_empty())
+            .unwrap_or_else(|| api::DEFAULT_OLLAMA_BASE_URL.to_string());
+        return DiagnosticCheck::new(
+            "Auth",
+            DiagnosticLevel::Ok,
+            "local provider active — no cloud credentials required",
+        )
+        .with_details(vec![
+            "Provider          local (Ollama)".to_string(),
+            format!("Base URL          {base_url}"),
+        ])
+        .with_data(Map::from_iter([
+            ("local_mode".to_string(), json!(true)),
+            ("api_key_present".to_string(), json!(false)),
+            ("auth_token_present".to_string(), json!(false)),
+            ("saved_oauth_present".to_string(), json!(false)),
+            ("saved_oauth_expired".to_string(), json!(false)),
+            ("saved_oauth_expires_at".to_string(), Value::Null),
+            ("refresh_token_present".to_string(), json!(false)),
+            ("scopes".to_string(), json!(Vec::<String>::new())),
+        ]));
+    }
+
     let api_key_present = env::var("ANTHROPIC_API_KEY")
         .ok()
         .is_some_and(|value| !value.trim().is_empty());
@@ -3676,13 +3729,13 @@ impl LiveCli {
             |path| path.display().to_string(),
         );
         format!(
-            "\x1b[38;5;196m\
- ██████╗██╗      █████╗ ██╗    ██╗\n\
-██╔════╝██║     ██╔══██╗██║    ██║\n\
-██║     ██║     ███████║██║ █╗ ██║\n\
-██║     ██║     ██╔══██║██║███╗██║\n\
-╚██████╗███████╗██║  ██║╚███╔███╔╝\n\
- ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝\x1b[0m \x1b[38;5;208mCode\x1b[0m 🦞\n\n\
+            "\x1b[38;5;39m\
+ █████╗  ██████╗  ██████╗██╗     ██╗\n\
+██╔══██╗██╔════╝ ██╔════╝██║     ██║\n\
+███████║██║  ███╗██║     ██║     ██║\n\
+██╔══██║██║   ██║██║     ██║     ██║\n\
+██║  ██║╚██████╔╝╚██████╗███████╗██║\n\
+╚═╝  ╚═╝ ╚═════╝  ╚═════╝╚══════╝╚═╝\x1b[0m \x1b[2mlocal-first agent CLI\x1b[0m\n\n\
   \x1b[2mModel\x1b[0m            {}\n\
   \x1b[2mPermissions\x1b[0m      {}\n\
   \x1b[2mBranch\x1b[0m           {}\n\
