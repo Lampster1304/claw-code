@@ -5,3 +5,8 @@ archive/
 # Claude Code local artifacts
 .claude/settings.local.json
 .claude/sessions/
+
+# AGCLI local artifacts
+.agcli/settings.local.json
+.agcli/sessions/
+.claw/sessions/

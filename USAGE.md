@@ -9,19 +9,19 @@ Run this before prompts, sessions, or automation:
 ```bash
 cd rust
 cargo build --workspace
-./target/debug/claw
+./target/debug/agcli
 # first command inside the REPL
 /doctor
 ```
 
-`/doctor` is the built-in setup and preflight diagnostic. Once you have a saved session, you can rerun it with `./target/debug/claw --resume latest /doctor`.
+`/doctor` is the built-in setup and preflight diagnostic. Once you have a saved session, you can rerun it with `./target/debug/agcli --resume latest /doctor`.
 
 ## Prerequisites
 
 - Rust toolchain with `cargo`
 - One of:
   - `ANTHROPIC_API_KEY` for direct API access
-  - `claw login` for OAuth-based auth
+  - `agcli login` for OAuth-based auth
 - Optional: `ANTHROPIC_BASE_URL` when targeting a proxy or local service
 
 ## Install / build the workspace
@@ -31,7 +31,7 @@ cd rust
 cargo build --workspace
 ```
 
-The CLI binary is available at `rust/target/debug/claw` after a debug build. Make the doctor check above your first post-build step.
+The CLI binary is available at `rust/target/debug/agcli` after a debug build. Make the doctor check above your first post-build step.
 
 ## Quick start
 
@@ -39,7 +39,7 @@ The CLI binary is available at `rust/target/debug/claw` after a debug build. Mak
 
 ```bash
 cd rust
-./target/debug/claw
+./target/debug/agcli
 /doctor
 ```
 
@@ -47,38 +47,38 @@ cd rust
 
 ```bash
 cd rust
-./target/debug/claw
+./target/debug/agcli
 ```
 
 ### One-shot prompt
 
 ```bash
 cd rust
-./target/debug/claw prompt "summarize this repository"
+./target/debug/agcli prompt "summarize this repository"
 ```
 
 ### Shorthand prompt mode
 
 ```bash
 cd rust
-./target/debug/claw "explain rust/crates/runtime/src/lib.rs"
+./target/debug/agcli "explain rust/crates/runtime/src/lib.rs"
 ```
 
 ### JSON output for scripting
 
 ```bash
 cd rust
-./target/debug/claw --output-format json prompt "status"
+./target/debug/agcli --output-format json prompt "status"
 ```
 
 ## Model and permission controls
 
 ```bash
 cd rust
-./target/debug/claw --model sonnet prompt "review this diff"
-./target/debug/claw --permission-mode read-only prompt "summarize Cargo.toml"
-./target/debug/claw --permission-mode workspace-write prompt "update README.md"
-./target/debug/claw --allowedTools read,glob "inspect the runtime crate"
+./target/debug/agcli --model sonnet prompt "review this diff"
+./target/debug/agcli --permission-mode read-only prompt "summarize Cargo.toml"
+./target/debug/agcli --permission-mode workspace-write prompt "update README.md"
+./target/debug/agcli --allowedTools read,glob "inspect the runtime crate"
 ```
 
 Supported permission modes:
@@ -105,8 +105,8 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 
 ```bash
 cd rust
-./target/debug/claw login
-./target/debug/claw logout
+./target/debug/agcli login
+./target/debug/agcli logout
 ```
 
 ### Which env var goes where
@@ -116,7 +116,7 @@ cd rust
 | Credential shape | Env var | HTTP header | Typical source |
 |---|---|---|---|
 | `sk-ant-*` API key | `ANTHROPIC_API_KEY` | `x-api-key: sk-ant-...` | [console.anthropic.com](https://console.anthropic.com) |
-| OAuth access token (opaque) | `ANTHROPIC_AUTH_TOKEN` | `Authorization: Bearer ...` | `claw login` or an Anthropic-compatible proxy that mints Bearer tokens |
+| OAuth access token (opaque) | `ANTHROPIC_AUTH_TOKEN` | `Authorization: Bearer ...` | `agcli login` or an Anthropic-compatible proxy that mints Bearer tokens |
 | OpenRouter key (`sk-or-v1-*`) | `OPENAI_API_KEY` + `OPENAI_BASE_URL=https://openrouter.ai/api/v1` | `Authorization: Bearer ...` | [openrouter.ai/keys](https://openrouter.ai/keys) |
 
 **Why this matters:** if you paste an `sk-ant-*` key into `ANTHROPIC_AUTH_TOKEN`, Anthropic's API will return `401 Invalid bearer token` because `sk-ant-*` keys are rejected over the Bearer header. The fix is a one-line env var swap — move the key to `ANTHROPIC_API_KEY`. Recent `claw` builds detect this exact shape (401 + `sk-ant-*` in the Bearer slot) and append a hint to the error message pointing at the fix.
@@ -125,7 +125,7 @@ cd rust
 
 ## Local Models
 
-`claw` can talk to local servers and provider gateways through either Anthropic-compatible or OpenAI-compatible endpoints. Use `ANTHROPIC_BASE_URL` with `ANTHROPIC_AUTH_TOKEN` for Anthropic-compatible services, or `OPENAI_BASE_URL` with `OPENAI_API_KEY` for OpenAI-compatible services. OAuth is Anthropic-only, so when `OPENAI_BASE_URL` is set you should use API-key style auth instead of `claw login`.
+`claw` can talk to local servers and provider gateways through either Anthropic-compatible or OpenAI-compatible endpoints. Use `ANTHROPIC_BASE_URL` with `ANTHROPIC_AUTH_TOKEN` for Anthropic-compatible services, or `OPENAI_BASE_URL` with `OPENAI_API_KEY` for OpenAI-compatible services. OAuth is Anthropic-only, so when `OPENAI_BASE_URL` is set you should use API-key style auth instead of `agcli login`.
 
 ### Anthropic-compatible endpoint
 
@@ -134,7 +134,7 @@ export ANTHROPIC_BASE_URL="http://127.0.0.1:8080"
 export ANTHROPIC_AUTH_TOKEN="local-dev-token"
 
 cd rust
-./target/debug/claw --model "claude-sonnet-4-6" prompt "reply with the word ready"
+./target/debug/agcli --model "claude-sonnet-4-6" prompt "reply with the word ready"
 ```
 
 ### OpenAI-compatible endpoint
@@ -144,7 +144,7 @@ export OPENAI_BASE_URL="http://127.0.0.1:8000/v1"
 export OPENAI_API_KEY="local-dev-token"
 
 cd rust
-./target/debug/claw --model "qwen2.5-coder" prompt "reply with the word ready"
+./target/debug/agcli --model "qwen2.5-coder" prompt "reply with the word ready"
 ```
 
 ### Ollama
@@ -154,7 +154,7 @@ export OPENAI_BASE_URL="http://127.0.0.1:11434/v1"
 unset OPENAI_API_KEY
 
 cd rust
-./target/debug/claw --model "llama3.2" prompt "summarize this repository in one sentence"
+./target/debug/agcli --model "llama3.2" prompt "summarize this repository in one sentence"
 ```
 
 ### OpenRouter
@@ -164,7 +164,7 @@ export OPENAI_BASE_URL="https://openrouter.ai/api/v1"
 export OPENAI_API_KEY="sk-or-v1-..."
 
 cd rust
-./target/debug/claw --model "openai/gpt-4.1-mini" prompt "summarize this repository in one sentence"
+./target/debug/agcli --model "openai/gpt-4.1-mini" prompt "summarize this repository in one sentence"
 ```
 
 ### Alibaba DashScope (Qwen)
@@ -175,9 +175,9 @@ For Qwen models via Alibaba's native DashScope API (higher rate limits than Open
 export DASHSCOPE_API_KEY="sk-..."
 
 cd rust
-./target/debug/claw --model "qwen/qwen-max" prompt "hello"
+./target/debug/agcli --model "qwen/qwen-max" prompt "hello"
 # or bare:
-./target/debug/claw --model "qwen-plus" prompt "hello"
+./target/debug/agcli --model "qwen-plus" prompt "hello"
 ```
 
 Model names starting with `qwen/` or `qwen-` are automatically routed to the DashScope compatible-mode endpoint (`https://dashscope.aliyuncs.com/compatible-mode/v1`). You do **not** need to set `OPENAI_BASE_URL` or unset `ANTHROPIC_API_KEY` — the model prefix wins over the ambient credential sniffer.
@@ -192,7 +192,7 @@ Reasoning variants (`qwen-qwq-*`, `qwq-*`, `*-thinking`) automatically strip `te
 
 | Provider | Protocol | Auth env var(s) | Base URL env var | Default base URL |
 |---|---|---|---|---|
-| **Anthropic** (direct) | Anthropic Messages API | `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` or OAuth (`claw login`) | `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` |
+| **Anthropic** (direct) | Anthropic Messages API | `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` or OAuth (`agcli login`) | `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` |
 | **xAI** | OpenAI-compatible | `XAI_API_KEY` | `XAI_BASE_URL` | `https://api.x.ai/v1` |
 | **OpenAI-compatible** | OpenAI Chat Completions | `OPENAI_API_KEY` | `OPENAI_BASE_URL` | `https://api.openai.com/v1` |
 | **DashScope** (Alibaba) | OpenAI-compatible | `DASHSCOPE_API_KEY` | `DASHSCOPE_BASE_URL` | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
@@ -218,7 +218,7 @@ Any model name that does not match an alias is passed through verbatim. This is 
 
 ### User-defined aliases
 
-You can add custom aliases in any settings file (`~/.claw/settings.json`, `.claw/settings.json`, or `.claw/settings.local.json`):
+You can add custom aliases in any settings file (`~/.agcli/settings.json`, `.agcli/settings.json`, or `.agcli/settings.local.json`):
 
 ```json
 {
@@ -246,7 +246,7 @@ Local project settings override user-level settings. Aliases resolve through the
 The name "codex" appears in the Claw Code ecosystem but it does **not** refer to OpenAI Codex (the code-generation model). Here is what it means in this project:
 
 - **`oh-my-codex` (OmX)** is the workflow and plugin layer that sits on top of `claw`. It provides planning modes, parallel multi-agent execution, notification routing, and other automation features. See [PHILOSOPHY.md](./PHILOSOPHY.md) and the [oh-my-codex repo](https://github.com/Yeachan-Heo/oh-my-codex).
-- **`.codex/` directories** (e.g. `.codex/skills`, `.codex/agents`, `.codex/commands`) are legacy lookup paths that `claw` still scans alongside the primary `.claw/` directories.
+- **`.codex/` directories** (e.g. `.codex/skills`, `.codex/agents`, `.codex/commands`) are legacy lookup paths that `claw` still scans alongside the primary `.agcli/` directories.
 - **`CODEX_HOME`** is an optional environment variable that points to a custom root for user-level skill and command lookups.
 
 `claw` does **not** support OpenAI Codex sessions, the Codex CLI, or Codex session import/export. If you need to use OpenAI models (like GPT-4.1), configure the OpenAI-compatible provider as shown above in the [OpenAI-compatible endpoint](#openai-compatible-endpoint) and [OpenRouter](#openrouter) sections.
@@ -263,7 +263,7 @@ export HTTP_PROXY="http://proxy.corp.example:3128"
 export NO_PROXY="localhost,127.0.0.1,.corp.example"
 
 cd rust
-./target/debug/claw prompt "hello via the corporate proxy"
+./target/debug/agcli prompt "hello via the corporate proxy"
 ```
 
 ### Programmatic `proxy_url` config option
@@ -298,22 +298,22 @@ let client = build_http_client_with(&config).expect("proxy client");
 
 ```bash
 cd rust
-./target/debug/claw status
-./target/debug/claw sandbox
-./target/debug/claw agents
-./target/debug/claw mcp
-./target/debug/claw skills
-./target/debug/claw system-prompt --cwd .. --date 2026-04-04
+./target/debug/agcli status
+./target/debug/agcli sandbox
+./target/debug/agcli agents
+./target/debug/agcli mcp
+./target/debug/agcli skills
+./target/debug/agcli system-prompt --cwd .. --date 2026-04-04
 ```
 
 ## Session management
 
-REPL turns are persisted under `.claw/sessions/` in the current workspace.
+REPL turns are persisted under `.agcli/sessions/` in the current workspace.
 
 ```bash
 cd rust
-./target/debug/claw --resume latest
-./target/debug/claw --resume latest /status /diff
+./target/debug/agcli --resume latest
+./target/debug/agcli --resume latest /status /diff
 ```
 
 Useful interactive commands include `/help`, `/status`, `/cost`, `/config`, `/session`, `/model`, `/permissions`, and `/export`.
@@ -322,11 +322,11 @@ Useful interactive commands include `/help`, `/status`, `/cost`, `/config`, `/se
 
 Runtime config is loaded in this order, with later entries overriding earlier ones:
 
-1. `~/.claw.json`
+1. `~/.agcli.json`
 2. `~/.config/claw/settings.json`
-3. `<repo>/.claw.json`
-4. `<repo>/.claw/settings.json`
-5. `<repo>/.claw/settings.local.json`
+3. `<repo>/.agcli.json`
+4. `<repo>/.agcli/settings.json`
+5. `<repo>/.agcli/settings.local.json`
 
 ## Mock parity harness
 

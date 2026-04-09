@@ -117,8 +117,8 @@ fn resumed_config_command_loads_settings_files_end_to_end() {
     // given
     let temp_dir = unique_temp_dir("resume-config");
     let project_dir = temp_dir.join("project");
-    let config_home = temp_dir.join("home").join(".claw");
-    fs::create_dir_all(project_dir.join(".claw")).expect("project config dir should exist");
+    let config_home = temp_dir.join("home").join(".agcli");
+    fs::create_dir_all(project_dir.join(".agcli")).expect("project config dir should exist");
     fs::create_dir_all(&config_home).expect("config home should exist");
 
     let session_path = project_dir.join("session.jsonl");
@@ -130,7 +130,7 @@ fn resumed_config_command_loads_settings_files_end_to_end() {
     fs::write(config_home.join("settings.json"), r#"{"model":"haiku"}"#)
         .expect("user config should write");
     fs::write(
-        project_dir.join(".claw").join("settings.local.json"),
+        project_dir.join(".agcli").join("settings.local.json"),
         r#"{"model":"opus"}"#,
     )
     .expect("local config should write");
@@ -144,7 +144,7 @@ fn resumed_config_command_loads_settings_files_end_to_end() {
             "/config",
             "model",
         ],
-        &[("CLAW_CONFIG_HOME", config_home.to_str().expect("utf8 path"))],
+        &[("AGCLI_CONFIG_HOME", config_home.to_str().expect("utf8 path"))],
     );
 
     // then
@@ -166,7 +166,7 @@ fn resumed_config_command_loads_settings_files_end_to_end() {
     ));
     assert!(stdout.contains(
         project_dir
-            .join(".claw")
+            .join(".agcli")
             .join("settings.local.json")
             .to_str()
             .expect("utf8 path")
@@ -180,7 +180,7 @@ fn resume_latest_restores_the_most_recent_managed_session() {
     // given
     let temp_dir = unique_temp_dir("resume-latest");
     let project_dir = temp_dir.join("project");
-    let sessions_dir = project_dir.join(".claw").join("sessions");
+    let sessions_dir = project_dir.join(".agcli").join("sessions");
     fs::create_dir_all(&sessions_dir).expect("sessions dir should exist");
 
     let older_path = sessions_dir.join("session-older.jsonl");
@@ -262,7 +262,7 @@ fn resumed_status_command_emits_structured_json_when_requested() {
         serde_json::from_str(stdout.trim()).expect("resume status output should be json");
     assert_eq!(parsed["kind"], "status");
     assert_eq!(parsed["model"], "restored-session");
-    assert_eq!(parsed["permission_mode"], "danger-full-access");
+    assert_eq!(parsed["permission_mode"], "workspace-write");
     assert_eq!(parsed["usage"]["messages"], 1);
     assert!(parsed["usage"]["turns"].is_number());
     assert!(parsed["workspace"]["cwd"].as_str().is_some());
@@ -323,12 +323,12 @@ fn run_claw(current_dir: &Path, args: &[&str]) -> Output {
 }
 
 fn run_claw_with_env(current_dir: &Path, args: &[&str], envs: &[(&str, &str)]) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_claw"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_agcli"));
     command.current_dir(current_dir).args(args);
     for (key, value) in envs {
         command.env(key, value);
     }
-    command.output().expect("claw should launch")
+    command.output().expect("agcli should launch")
 }
 
 fn unique_temp_dir(label: &str) -> PathBuf {
