@@ -125,13 +125,13 @@ fn main() {
                     "error": message,
                 })
             );
-        } else if message.contains("`claw --help`") {
+        } else if message.contains("`agcli --help`") {
             eprintln!("error: {message}");
         } else {
             eprintln!(
                 "error: {message}
 
-Run `claw --help` for usage."
+Run `agcli --help` for usage."
             );
         }
         std::process::exit(1);
@@ -778,11 +778,11 @@ fn bare_slash_command_guidance(command_name: &str) -> Option<String> {
         .find(|spec| spec.name == command_name)?;
     let guidance = if slash_command.resume_supported {
         format!(
-            "`claw {command_name}` is a slash command. Use `claw --resume SESSION.jsonl /{command_name}` or start `claw` and run `/{command_name}`."
+            "`agcli {command_name}` is a slash command. Use `agcli --resume SESSION.jsonl /{command_name}` or start `agcli` and run `/{command_name}`."
         )
     } else {
         format!(
-            "`claw {command_name}` is a slash command. Start `claw` and run `/{command_name}` inside the REPL."
+            "`agcli {command_name}` is a slash command. Start `agcli` and run `/{command_name}` inside the REPL."
         )
     };
     Some(guidance)
@@ -844,7 +844,7 @@ fn parse_direct_slash_cli_action(
         Ok(Some(command)) => Err({
             let _ = command;
             format!(
-                "slash command {command_name} is interactive-only. Start `claw` and run it there, or use `claw --resume SESSION.jsonl {command_name}` / `claw --resume {latest} {command_name}` when the command is marked [resume] in /help.",
+                "slash command {command_name} is interactive-only. Start `agcli` and run it there, or use `agcli --resume SESSION.jsonl {command_name}` / `agcli --resume {latest} {command_name}` when the command is marked [resume] in /help.",
                 command_name = rest[0],
                 latest = LATEST_SESSION_REFERENCE,
             )
@@ -861,7 +861,7 @@ fn format_unknown_option(option: &str) -> String {
         message.push_str(suggestion);
         message.push('?');
     }
-    message.push_str("\nRun `claw --help` for usage.");
+    message.push_str("\nRun `agcli --help` for usage.");
     message
 }
 
@@ -876,7 +876,7 @@ fn format_unknown_direct_slash_command(name: &str) -> String {
         message.push('\n');
         message.push_str(note);
     }
-    message.push_str("\nRun `claw --help` for CLI usage, or start `claw` and use /help.");
+    message.push_str("\nRun `agcli --help` for CLI usage, or start `agcli` and use /help.");
     message
 }
 
@@ -898,7 +898,7 @@ fn format_unknown_slash_command(name: &str) -> String {
 fn omc_compatibility_note_for_unknown_slash_command(name: &str) -> Option<&'static str> {
     name.starts_with("oh-my-claudecode:")
         .then_some(
-            "Compatibility note: `/oh-my-claudecode:*` is a Claude Code/OMC plugin command. `claw` does not yet load plugin slash commands, Claude statusline stdin, or OMC session hooks.",
+            "Compatibility note: `/oh-my-claudecode:*` is a Claude Code/OMC plugin command. `agcli` does not yet load plugin slash commands, Claude statusline stdin, or OMC session hooks.",
         )
 }
 
@@ -1478,7 +1478,7 @@ fn run_doctor(output_format: CliOutputFormat) -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
-/// Starts a minimal Model Context Protocol server that exposes claw's
+/// Starts a minimal Model Context Protocol server that exposes agcli's
 /// built-in tools over stdio.
 ///
 /// Tool descriptors come from [`tools::mvp_tool_specs`] and calls are
@@ -2764,7 +2764,7 @@ fn run_resume_command(
             Ok(ResumeCommandOutcome {
                 session: cleared,
                 message: Some(format!(
-                    "Session cleared\n  Mode             resumed session reset\n  Previous session {previous_session_id}\n  Backup           {}\n  Resume previous  claw --resume {}\n  New session      {new_session_id}\n  Session file     {}",
+                    "Session cleared\n  Mode             resumed session reset\n  Previous session {previous_session_id}\n  Backup           {}\n  Resume previous  agcli --resume {}\n  New session      {new_session_id}\n  Session file     {}",
                     backup_path.display(),
                     backup_path.display(),
                     session_path.display()
@@ -2895,7 +2895,7 @@ fn run_resume_command(
         SlashCommand::Skills { args } => {
             if let SkillSlashDispatch::Invoke(_) = classify_skills_slash_command(args.as_deref()) {
                 return Err(
-                    "resumed /skills invocations are interactive-only; start `claw` and run `/skills <skill>` in the REPL".into(),
+                    "resumed /skills invocations are interactive-only; start `agcli` and run `/skills <skill>` in the REPL".into(),
                 );
             }
             let cwd = env::current_dir()?;
@@ -3036,7 +3036,7 @@ fn enforce_broad_cwd_policy(
         eprintln!(
             "Warning: agcli is running from a very broad directory ({}).\n\
              The agent can read and search everything under this path.\n\
-             Consider running from inside your project: cd /path/to/project && claw",
+             Consider running from inside your project: cd /path/to/project && agcli",
             cwd.display()
         );
         eprint!("Continue anyway? [y/N]: ");
@@ -3056,7 +3056,7 @@ fn enforce_broad_cwd_policy(
             "agcli is running from a very broad directory ({}). \
              The agent can read and search everything under this path. \
              Use --allow-broad-cwd to proceed anyway, \
-             or run from inside your project: cd /path/to/project && claw",
+             or run from inside your project: cd /path/to/project && agcli",
             cwd.display()
         );
         match output_format {
@@ -4362,7 +4362,7 @@ impl LiveCli {
         args: Option<&str>,
         output_format: CliOutputFormat,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // `agcli mcp serve` starts a stdio MCP server exposing claw's built-in
+        // `agcli mcp serve` starts a stdio MCP server exposing agcli's built-in
         // tools. All other `mcp` subcommands fall through to the existing
         // configured-server reporter (`list`, `status`, ...).
         if matches!(args.map(str::trim), Some("serve")) {
@@ -4919,7 +4919,7 @@ fn format_missing_session_reference(reference: &str) -> String {
 
 fn format_no_managed_sessions() -> String {
     format!(
-        "no managed sessions found in .agcli/sessions/\nStart `claw` to create a session, then rerun with `--resume {LATEST_SESSION_REFERENCE}`."
+        "no managed sessions found in .agcli/sessions/\nStart `agcli` to create a session, then rerun with `--resume {LATEST_SESSION_REFERENCE}`."
     )
 }
 
@@ -5315,7 +5315,7 @@ fn render_help_topic(topic: LocalHelpTopic) -> String {
   Usage            agcli status
   Purpose          show the local workspace snapshot without entering the REPL
   Output           model, permissions, git state, config files, and sandbox status
-  Related          /status · claw --resume latest /status"
+  Related          /status · agcli --resume latest /status"
             .to_string(),
         LocalHelpTopic::Sandbox => "Sandbox
   Usage            agcli sandbox
@@ -5327,7 +5327,7 @@ fn render_help_topic(topic: LocalHelpTopic) -> String {
   Usage            agcli doctor
   Purpose          diagnose local auth, config, workspace, sandbox, and build metadata
   Output           local-only health report; no provider request or session resume required
-  Related          /doctor · claw --resume latest /doctor"
+  Related          /doctor · agcli --resume latest /doctor"
             .to_string(),
     }
 }
@@ -7222,7 +7222,7 @@ fn format_context_window_blocked_error(session_id: &str, error: &api::ApiError) 
     lines.push("Recovery".to_string());
     lines.push("  Compact          /compact".to_string());
     lines.push(format!(
-        "  Resume compact   claw --resume {session_id} /compact"
+        "  Resume compact   agcli --resume {session_id} /compact"
     ));
     lines.push("  Fresh session    /clear --confirm".to_string());
     lines.push(
@@ -8172,22 +8172,22 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     writeln!(out, "Usage:")?;
     writeln!(
         out,
-        "  claw [--model MODEL] [--allowedTools TOOL[,TOOL...]]"
+        "  agcli [--model MODEL] [--allowedTools TOOL[,TOOL...]]"
     )?;
     writeln!(out, "      Start the interactive REPL")?;
     writeln!(
         out,
-        "  claw [--model MODEL] [--output-format text|json] prompt TEXT"
+        "  agcli [--model MODEL] [--output-format text|json] prompt TEXT"
     )?;
     writeln!(out, "      Send one prompt and exit")?;
     writeln!(
         out,
-        "  claw [--model MODEL] [--output-format text|json] TEXT"
+        "  agcli [--model MODEL] [--output-format text|json] TEXT"
     )?;
     writeln!(out, "      Shorthand non-interactive prompt mode")?;
     writeln!(
         out,
-        "  claw --resume [SESSION.jsonl|session-id|latest] [/status] [/compact] [...]"
+        "  agcli --resume [SESSION.jsonl|session-id|latest] [/status] [/compact] [...]"
     )?;
     writeln!(
         out,
@@ -8281,24 +8281,24 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
         "  Use /session list in the REPL to browse managed sessions"
     )?;
     writeln!(out, "Examples:")?;
-    writeln!(out, "  claw --model claude-opus \"summarize this repo\"")?;
+    writeln!(out, "  agcli --model claude-opus \"summarize this repo\"")?;
     writeln!(
         out,
-        "  claw --output-format json prompt \"explain src/main.rs\""
+        "  agcli --output-format json prompt \"explain src/main.rs\""
     )?;
-    writeln!(out, "  claw --compact \"summarize Cargo.toml\" | wc -l")?;
+    writeln!(out, "  agcli --compact \"summarize Cargo.toml\" | wc -l")?;
     writeln!(
         out,
-        "  claw --allowedTools read,glob \"summarize Cargo.toml\""
+        "  agcli --allowedTools read,glob \"summarize Cargo.toml\""
     )?;
-    writeln!(out, "  claw --resume {LATEST_SESSION_REFERENCE}")?;
+    writeln!(out, "  agcli --resume {LATEST_SESSION_REFERENCE}")?;
     writeln!(
         out,
-        "  claw --resume {LATEST_SESSION_REFERENCE} /status /diff /export notes.txt"
+        "  agcli --resume {LATEST_SESSION_REFERENCE} /status /diff /export notes.txt"
     )?;
     writeln!(out, "  agcli agents")?;
     writeln!(out, "  agcli mcp show my-server")?;
-    writeln!(out, "  claw /skills")?;
+    writeln!(out, "  agcli /skills")?;
     writeln!(out, "  agcli doctor")?;
     writeln!(out, "  agcli login")?;
     writeln!(out, "  agcli init")?;
@@ -8468,7 +8468,7 @@ mod tests {
         );
         assert!(rendered.contains("Compact          /compact"), "{rendered}");
         assert!(
-            rendered.contains("Resume compact   claw --resume session-issue-32 /compact"),
+            rendered.contains("Resume compact   agcli --resume session-issue-32 /compact"),
             "{rendered}"
         );
         assert!(
@@ -8539,7 +8539,7 @@ mod tests {
         );
         assert!(rendered.contains("Compact          /compact"), "{rendered}");
         assert!(
-            rendered.contains("Resume compact   claw --resume session-issue-32 /compact"),
+            rendered.contains("Resume compact   agcli --resume session-issue-32 /compact"),
             "{rendered}"
         );
     }
@@ -9760,7 +9760,7 @@ mod tests {
         let error = parse_args(&["/status".to_string()])
             .expect_err("/status should remain REPL-only when invoked directly");
         assert!(error.contains("interactive-only"));
-        assert!(error.contains("claw --resume SESSION.jsonl /status"));
+        assert!(error.contains("agcli --resume SESSION.jsonl /status"));
     }
 
     #[test]
@@ -9864,7 +9864,7 @@ mod tests {
         let error = parse_args(&["--resum".to_string()]).expect_err("unknown option should fail");
         assert!(error.contains("unknown option: --resum"));
         assert!(error.contains("Did you mean --resume?"));
-        assert!(error.contains("claw --help"));
+        assert!(error.contains("agcli --help"));
     }
 
     #[test]
@@ -10183,7 +10183,7 @@ mod tests {
         assert!(help.contains("agcli agents"));
         assert!(help.contains("agcli mcp"));
         assert!(help.contains("agcli skills"));
-        assert!(help.contains("claw /skills"));
+        assert!(help.contains("agcli /skills"));
     }
 
     #[test]
@@ -10577,10 +10577,10 @@ UU conflicted.rs",
         let mut help = Vec::new();
         print_help_to(&mut help).expect("help should render");
         let help = String::from_utf8(help).expect("help should be utf8");
-        assert!(help.contains("claw --resume [SESSION.jsonl|session-id|latest]"));
+        assert!(help.contains("agcli --resume [SESSION.jsonl|session-id|latest]"));
         assert!(help.contains("Use `latest` with --resume, /resume, or /session switch"));
-        assert!(help.contains("claw --resume latest"));
-        assert!(help.contains("claw --resume latest /status /diff /export notes.txt"));
+        assert!(help.contains("agcli --resume latest"));
+        assert!(help.contains("agcli --resume latest /status /diff /export notes.txt"));
     }
 
     #[test]
@@ -10688,7 +10688,7 @@ UU conflicted.rs",
             .duration_since(std::time::UNIX_EPOCH)
             .expect("system time should be after epoch")
             .as_nanos();
-        std::env::temp_dir().join(format!("claw-cli-{label}-{nanos}"))
+        std::env::temp_dir().join(format!("agcli-cli-{label}-{nanos}"))
     }
 
     #[test]
