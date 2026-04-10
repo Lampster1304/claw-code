@@ -3606,7 +3606,7 @@ impl LiveCli {
         emit_output: bool,
     ) -> Result<(BuiltRuntime, HookAbortMonitor), Box<dyn std::error::Error>> {
         let hook_abort_signal = runtime::HookAbortSignal::new();
-        let runtime = build_runtime(
+        let mut runtime = build_runtime(
             self.runtime.session().clone(),
             &self.session.id,
             self.model.clone(),
@@ -3618,6 +3618,10 @@ impl LiveCli {
             None,
         )?
         .with_hook_abort_signal(hook_abort_signal.clone());
+        if let Some(rt) = runtime.runtime.as_mut() {
+            rt.api_client_mut()
+                .set_show_thinking(emit_output && !self.hide_thinking);
+        }
         let hook_abort_monitor = HookAbortMonitor::spawn(hook_abort_signal);
 
         Ok((runtime, hook_abort_monitor))
@@ -3634,7 +3638,7 @@ impl LiveCli {
         let mut spinner = Spinner::new();
         let mut stdout = io::stdout();
         spinner.tick(
-            "🦀 Thinking...",
+            "Thinking...",
             TerminalRenderer::new().color_theme(),
             &mut stdout,
         )?;
@@ -6632,6 +6636,7 @@ struct AnthropicRuntimeClient {
     model: String,
     enable_tools: bool,
     emit_output: bool,
+    show_thinking: bool,
     allowed_tools: Option<AllowedToolSet>,
     tool_registry: GlobalToolRegistry,
     progress_reporter: Option<InternalPromptProgressReporter>,
@@ -6689,6 +6694,7 @@ impl AnthropicRuntimeClient {
             model,
             enable_tools,
             emit_output,
+            show_thinking: emit_output,
             allowed_tools,
             tool_registry,
             progress_reporter,
@@ -6698,6 +6704,10 @@ impl AnthropicRuntimeClient {
 
     fn set_reasoning_effort(&mut self, effort: Option<String>) {
         self.reasoning_effort = effort;
+    }
+
+    fn set_show_thinking(&mut self, show_thinking: bool) {
+        self.show_thinking = show_thinking;
     }
 }
 
@@ -6841,6 +6851,7 @@ impl AnthropicRuntimeClient {
                             &mut events,
                             &mut pending_tool,
                             true,
+                            self.show_thinking,
                             &mut block_has_thinking_summary,
                         )?;
                     }
@@ -6852,6 +6863,7 @@ impl AnthropicRuntimeClient {
                         &mut events,
                         &mut pending_tool,
                         true,
+                        self.show_thinking,
                         &mut block_has_thinking_summary,
                     )?;
                 }
@@ -6874,8 +6886,14 @@ impl AnthropicRuntimeClient {
                             input.push_str(&partial_json);
                         }
                     }
-                    ContentBlockDelta::ThinkingDelta { .. } => {
-                        if !block_has_thinking_summary {
+                    ContentBlockDelta::ThinkingDelta { thinking } => {
+                        if self.show_thinking {
+                            render_thinking_delta(
+                                out,
+                                &thinking,
+                                &mut block_has_thinking_summary,
+                            )?;
+                        } else if !block_has_thinking_summary {
                             render_thinking_block_summary(out, None, false)?;
                             block_has_thinking_summary = true;
                         }
@@ -6943,7 +6961,7 @@ impl AnthropicRuntimeClient {
             .map_err(|error| {
                 RuntimeError::new(format_user_visible_api_error(&self.session_id, &error))
             })?;
-        let mut events = response_to_events(response, out)?;
+        let mut events = response_to_events(response, out, self.show_thinking)?;
         push_prompt_cache_record(&self.client, &mut events);
         Ok(events)
     }
@@ -7699,12 +7717,30 @@ fn render_thinking_block_summary(
         .map_err(|error| RuntimeError::new(error.to_string()))
 }
 
+fn render_thinking_delta(
+    out: &mut (impl Write + ?Sized),
+    chunk: &str,
+    header_written: &mut bool,
+) -> Result<(), RuntimeError> {
+    if chunk.is_empty() {
+        return Ok(());
+    }
+    if !*header_written {
+        write!(out, "\n▶ Thinking\n").map_err(|error| RuntimeError::new(error.to_string()))?;
+        *header_written = true;
+    }
+    write!(out, "{chunk}")
+        .and_then(|()| out.flush())
+        .map_err(|error| RuntimeError::new(error.to_string()))
+}
+
 fn push_output_block(
     block: OutputContentBlock,
     out: &mut (impl Write + ?Sized),
     events: &mut Vec<AssistantEvent>,
     pending_tool: &mut Option<(String, String, String)>,
     streaming_tool_input: bool,
+    show_thinking: bool,
     block_has_thinking_summary: &mut bool,
 ) -> Result<(), RuntimeError> {
     match block {
@@ -7732,8 +7768,12 @@ fn push_output_block(
             *pending_tool = Some((id, name, initial_input));
         }
         OutputContentBlock::Thinking { thinking, .. } => {
-            render_thinking_block_summary(out, Some(thinking.chars().count()), false)?;
-            *block_has_thinking_summary = true;
+            if show_thinking {
+                render_thinking_delta(out, &thinking, block_has_thinking_summary)?;
+            } else {
+                render_thinking_block_summary(out, Some(thinking.chars().count()), false)?;
+                *block_has_thinking_summary = true;
+            }
         }
         OutputContentBlock::RedactedThinking { .. } => {
             render_thinking_block_summary(out, None, true)?;
@@ -7746,6 +7786,7 @@ fn push_output_block(
 fn response_to_events(
     response: MessageResponse,
     out: &mut (impl Write + ?Sized),
+    show_thinking: bool,
 ) -> Result<Vec<AssistantEvent>, RuntimeError> {
     let mut events = Vec::new();
     let mut pending_tool = None;
@@ -7758,6 +7799,7 @@ fn response_to_events(
             &mut events,
             &mut pending_tool,
             false,
+            show_thinking,
             &mut block_has_thinking_summary,
         )?;
         if let Some((id, name, input)) = pending_tool.take() {
@@ -10954,6 +10996,7 @@ UU conflicted.rs",
             &mut events,
             &mut pending_tool,
             false,
+            false,
             &mut block_has_thinking_summary,
         )
         .expect("text block should render");
@@ -10980,6 +11023,7 @@ UU conflicted.rs",
             &mut events,
             &mut pending_tool,
             true,
+            false,
             &mut block_has_thinking_summary,
         )
         .expect("tool block should accumulate");
@@ -11016,6 +11060,7 @@ UU conflicted.rs",
                 request_id: None,
             },
             &mut out,
+            false,
         )
         .expect("response conversion should succeed");
 
@@ -11051,6 +11096,7 @@ UU conflicted.rs",
                 request_id: None,
             },
             &mut out,
+            false,
         )
         .expect("response conversion should succeed");
 
@@ -11059,6 +11105,40 @@ UU conflicted.rs",
             AssistantEvent::ToolUse { name, input, .. }
                 if name == "read_file" && input == "{\"path\":\"rust/Cargo.toml\"}"
         ));
+    }
+
+    #[test]
+    fn response_to_events_renders_visible_thinking_when_enabled() {
+        let mut out = Vec::new();
+        let _events = response_to_events(
+            MessageResponse {
+                id: "msg-thinking-visible".to_string(),
+                kind: "message".to_string(),
+                model: "claude-opus-4-6".to_string(),
+                role: "assistant".to_string(),
+                content: vec![
+                    OutputContentBlock::Thinking {
+                        thinking: "step 1".to_string(),
+                        signature: Some("sig_123".to_string()),
+                    },
+                    OutputContentBlock::Text {
+                        text: "Final answer".to_string(),
+                    },
+                ],
+                stop_reason: Some("end_turn".to_string()),
+                stop_sequence: None,
+                usage: Usage::default(),
+                request_id: None,
+            },
+            &mut out,
+            true,
+        )
+        .expect("response conversion should succeed");
+
+        let rendered = String::from_utf8(out).expect("utf8");
+        assert!(rendered.contains("▶ Thinking"));
+        assert!(rendered.contains("step 1"));
+        assert!(!rendered.contains("chars hidden"));
     }
 
     #[test]
@@ -11090,6 +11170,7 @@ UU conflicted.rs",
                 request_id: None,
             },
             &mut out,
+            false,
         )
         .expect("response conversion should succeed");
 
