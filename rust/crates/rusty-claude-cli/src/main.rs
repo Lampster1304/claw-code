@@ -7717,19 +7717,32 @@ fn render_thinking_block_summary(
         .map_err(|error| RuntimeError::new(error.to_string()))
 }
 
+fn sanitize_thinking_chunk(chunk: &str) -> String {
+    chunk
+        .chars()
+        .filter(|ch| match ch {
+            '\n' | '\t' => true,
+            _ if ch.is_ascii_control() => false,
+            '\u{0080}'..='\u{009F}' => false,
+            _ => true,
+        })
+        .collect()
+}
+
 fn render_thinking_delta(
     out: &mut (impl Write + ?Sized),
     chunk: &str,
     header_written: &mut bool,
 ) -> Result<(), RuntimeError> {
-    if chunk.is_empty() {
+    let sanitized_chunk = sanitize_thinking_chunk(chunk);
+    if sanitized_chunk.is_empty() {
         return Ok(());
     }
     if !*header_written {
         write!(out, "\n▶ Thinking\n").map_err(|error| RuntimeError::new(error.to_string()))?;
         *header_written = true;
     }
-    write!(out, "{chunk}")
+    write!(out, "{sanitized_chunk}")
         .and_then(|()| out.flush())
         .map_err(|error| RuntimeError::new(error.to_string()))
 }
@@ -11139,6 +11152,64 @@ UU conflicted.rs",
         assert!(rendered.contains("▶ Thinking"));
         assert!(rendered.contains("step 1"));
         assert!(!rendered.contains("chars hidden"));
+    }
+
+    #[test]
+    fn response_to_events_strips_control_chars_from_visible_thinking() {
+        let mut out = Vec::new();
+        let _events = response_to_events(
+            MessageResponse {
+                id: "msg-thinking-sanitized".to_string(),
+                kind: "message".to_string(),
+                model: "claude-opus-4-6".to_string(),
+                role: "assistant".to_string(),
+                content: vec![OutputContentBlock::Thinking {
+                    thinking: "step\u{1b}[31m 1\u{07}\n\tline\r".to_string(),
+                    signature: Some("sig_123".to_string()),
+                }],
+                stop_reason: Some("end_turn".to_string()),
+                stop_sequence: None,
+                usage: Usage::default(),
+                request_id: None,
+            },
+            &mut out,
+            true,
+        )
+        .expect("response conversion should succeed");
+
+        let rendered = String::from_utf8(out).expect("utf8");
+        assert!(rendered.contains("▶ Thinking"));
+        assert!(rendered.contains("step[31m 1\n\tline"));
+        assert!(!rendered.contains('\u{1b}'));
+        assert!(!rendered.contains('\u{07}'));
+        assert!(!rendered.contains('\r'));
+    }
+
+    #[test]
+    fn response_to_events_skips_empty_thinking_after_sanitization() {
+        let mut out = Vec::new();
+        let _events = response_to_events(
+            MessageResponse {
+                id: "msg-thinking-empty-sanitized".to_string(),
+                kind: "message".to_string(),
+                model: "claude-opus-4-6".to_string(),
+                role: "assistant".to_string(),
+                content: vec![OutputContentBlock::Thinking {
+                    thinking: "\u{1b}\u{07}\u{00}\r".to_string(),
+                    signature: Some("sig_123".to_string()),
+                }],
+                stop_reason: Some("end_turn".to_string()),
+                stop_sequence: None,
+                usage: Usage::default(),
+                request_id: None,
+            },
+            &mut out,
+            true,
+        )
+        .expect("response conversion should succeed");
+
+        let rendered = String::from_utf8(out).expect("utf8");
+        assert!(rendered.is_empty());
     }
 
     #[test]
