@@ -8331,13 +8331,11 @@ printf 'pwsh:%s' "$1"
         let _guard = env_lock()
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let original_anthropic = std::env::var_os("ANTHROPIC_API_KEY");
-        std::env::set_var("ANTHROPIC_API_KEY", "anthropic-test-key");
         let fallback_config = ProviderFallbackConfig::default();
 
         // when
         let client = ProviderRuntimeClient::new_with_fallback_config(
-            "claude-sonnet-4-6".to_string(),
+            "ollama/qwen3:8b".to_string(),
             BTreeSet::new(),
             &fallback_config,
         )
@@ -8345,50 +8343,42 @@ printf 'pwsh:%s' "$1"
 
         // then
         assert_eq!(client.chain.len(), 1);
-        assert_eq!(client.chain[0].model, "claude-sonnet-4-6");
-
-        match original_anthropic {
-            Some(value) => std::env::set_var("ANTHROPIC_API_KEY", value),
-            None => std::env::remove_var("ANTHROPIC_API_KEY"),
-        }
+        assert_eq!(client.chain[0].model, "ollama/qwen3:8b");
     }
 
     #[test]
-    fn provider_runtime_client_chain_appends_configured_fallbacks_in_order() {
+    fn provider_runtime_client_chain_appends_cloud_fallbacks_in_order() {
         // given
         let _guard = env_lock()
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let original_anthropic = std::env::var_os("ANTHROPIC_API_KEY");
-        let original_xai = std::env::var_os("XAI_API_KEY");
-        std::env::set_var("ANTHROPIC_API_KEY", "anthropic-test-key");
-        std::env::set_var("XAI_API_KEY", "xai-test-key");
+        let original_openai = std::env::var_os("OPENAI_API_KEY");
+        std::env::set_var("OPENAI_API_KEY", "openai-test-key");
         let fallback_config = ProviderFallbackConfig::new(
             None,
-            vec!["grok-3".to_string(), "grok-3-mini".to_string()],
+            vec![
+                "openai/gpt-4.1-mini".to_string(),
+                "openai/gpt-4.1".to_string(),
+            ],
         );
 
         // when
         let client = ProviderRuntimeClient::new_with_fallback_config(
-            "claude-sonnet-4-6".to_string(),
+            "ollama/qwen3:8b".to_string(),
             BTreeSet::new(),
             &fallback_config,
         )
-        .expect("chain with fallbacks should construct");
+        .expect("chain with cloud fallbacks should construct");
 
         // then
         assert_eq!(client.chain.len(), 3);
-        assert_eq!(client.chain[0].model, "claude-sonnet-4-6");
-        assert_eq!(client.chain[1].model, "grok-3");
-        assert_eq!(client.chain[2].model, "grok-3-mini");
+        assert_eq!(client.chain[0].model, "ollama/qwen3:8b");
+        assert_eq!(client.chain[1].model, "openai/gpt-4.1-mini");
+        assert_eq!(client.chain[2].model, "openai/gpt-4.1");
 
-        match original_anthropic {
-            Some(value) => std::env::set_var("ANTHROPIC_API_KEY", value),
-            None => std::env::remove_var("ANTHROPIC_API_KEY"),
-        }
-        match original_xai {
-            Some(value) => std::env::set_var("XAI_API_KEY", value),
-            None => std::env::remove_var("XAI_API_KEY"),
+        match original_openai {
+            Some(value) => std::env::set_var("OPENAI_API_KEY", value),
+            None => std::env::remove_var("OPENAI_API_KEY"),
         }
     }
 
@@ -8398,35 +8388,29 @@ printf 'pwsh:%s' "$1"
         let _guard = env_lock()
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let original_anthropic = std::env::var_os("ANTHROPIC_API_KEY");
-        let original_xai = std::env::var_os("XAI_API_KEY");
-        std::env::set_var("ANTHROPIC_API_KEY", "anthropic-test-key");
-        std::env::set_var("XAI_API_KEY", "xai-test-key");
+        let original_openai = std::env::var_os("OPENAI_API_KEY");
+        std::env::set_var("OPENAI_API_KEY", "openai-test-key");
         let fallback_config = ProviderFallbackConfig::new(
-            Some("grok-3".to_string()),
-            vec!["claude-sonnet-4-6".to_string()],
+            Some("openai/gpt-4.1-mini".to_string()),
+            vec!["ollama/qwen3:8b".to_string()],
         );
 
         // when
         let client = ProviderRuntimeClient::new_with_fallback_config(
-            "claude-haiku-4-5-20251213".to_string(),
+            "ollama/qwen3:8b".to_string(),
             BTreeSet::new(),
             &fallback_config,
         )
-        .expect("chain with primary override should construct");
+        .expect("chain with cloud primary should construct");
 
         // then
         assert_eq!(client.chain.len(), 2);
-        assert_eq!(client.chain[0].model, "grok-3");
-        assert_eq!(client.chain[1].model, "claude-sonnet-4-6");
+        assert_eq!(client.chain[0].model, "openai/gpt-4.1-mini");
+        assert_eq!(client.chain[1].model, "ollama/qwen3:8b");
 
-        match original_anthropic {
-            Some(value) => std::env::set_var("ANTHROPIC_API_KEY", value),
-            None => std::env::remove_var("ANTHROPIC_API_KEY"),
-        }
-        match original_xai {
-            Some(value) => std::env::set_var("XAI_API_KEY", value),
-            None => std::env::remove_var("XAI_API_KEY"),
+        match original_openai {
+            Some(value) => std::env::set_var("OPENAI_API_KEY", value),
+            None => std::env::remove_var("OPENAI_API_KEY"),
         }
     }
 
@@ -8436,21 +8420,16 @@ printf 'pwsh:%s' "$1"
         let _guard = env_lock()
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let original_anthropic = std::env::var_os("ANTHROPIC_API_KEY");
-        let original_xai = std::env::var_os("XAI_API_KEY");
-        std::env::set_var("ANTHROPIC_API_KEY", "anthropic-test-key");
-        std::env::remove_var("XAI_API_KEY");
+        let original_openai = std::env::var_os("OPENAI_API_KEY");
+        std::env::remove_var("OPENAI_API_KEY");
         let fallback_config = ProviderFallbackConfig::new(
             None,
-            vec![
-                "grok-3".to_string(),
-                "claude-haiku-4-5-20251213".to_string(),
-            ],
+            vec!["openai/gpt-4.1-mini".to_string(), "ollama/qwen3:14b".to_string()],
         );
 
         // when
         let client = ProviderRuntimeClient::new_with_fallback_config(
-            "claude-sonnet-4-6".to_string(),
+            "ollama/qwen3:8b".to_string(),
             BTreeSet::new(),
             &fallback_config,
         )
@@ -8458,15 +8437,11 @@ printf 'pwsh:%s' "$1"
 
         // then
         assert_eq!(client.chain.len(), 2);
-        assert_eq!(client.chain[0].model, "claude-sonnet-4-6");
-        assert_eq!(client.chain[1].model, "claude-haiku-4-5-20251213");
+        assert_eq!(client.chain[0].model, "ollama/qwen3:8b");
+        assert_eq!(client.chain[1].model, "ollama/qwen3:14b");
 
-        match original_anthropic {
-            Some(value) => std::env::set_var("ANTHROPIC_API_KEY", value),
-            None => std::env::remove_var("ANTHROPIC_API_KEY"),
-        }
-        if let Some(value) = original_xai {
-            std::env::set_var("XAI_API_KEY", value);
+        if let Some(value) = original_openai {
+            std::env::set_var("OPENAI_API_KEY", value);
         }
     }
 
