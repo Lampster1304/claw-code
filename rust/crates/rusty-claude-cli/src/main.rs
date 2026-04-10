@@ -2922,6 +2922,10 @@ fn format_repl_input_boundary() -> String {
     format!("\n{}\n", "─".repeat(56))
 }
 
+fn should_render_repl_input_boundary(stdin_is_tty: bool, stdout_is_tty: bool) -> bool {
+    stdin_is_tty && stdout_is_tty
+}
+
 fn run_repl(
     model: String,
     allowed_tools: Option<AllowedToolSet>,
@@ -2946,13 +2950,17 @@ fn run_repl(
         REPL_PROMPT_LABEL,
         cli.repl_completion_candidates().unwrap_or_default(),
     );
+    let render_input_boundary =
+        should_render_repl_input_boundary(io::stdin().is_terminal(), io::stdout().is_terminal());
     println!("{}", cli.startup_banner());
     println!("{}", format_connected_line(&cli.model));
 
     loop {
         editor.set_completions(cli.repl_completion_candidates().unwrap_or_default());
-        print!("{}", format_repl_input_boundary());
-        io::stdout().flush()?;
+        if render_input_boundary {
+            print!("{}", format_repl_input_boundary());
+            io::stdout().flush()?;
+        }
         match editor.read_line()? {
             input::ReadOutcome::Submit(input) => {
                 let trimmed = input.trim().to_string();
@@ -11003,6 +11011,14 @@ UU conflicted.rs",
         let boundary = super::format_repl_input_boundary();
         assert!(boundary.contains('─'));
         assert!(boundary.ends_with('\n'));
+    }
+
+    #[test]
+    fn repl_input_boundary_helper_requires_both_ttys() {
+        assert!(super::should_render_repl_input_boundary(true, true));
+        assert!(!super::should_render_repl_input_boundary(true, false));
+        assert!(!super::should_render_repl_input_boundary(false, true));
+        assert!(!super::should_render_repl_input_boundary(false, false));
     }
 
     #[test]
