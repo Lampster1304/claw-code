@@ -79,6 +79,8 @@ const BUILD_TARGET: Option<&str> = option_env!("TARGET");
 const GIT_SHA: Option<&str> = option_env!("GIT_SHA");
 const INTERNAL_PROGRESS_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(3);
 const POST_TOOL_STALL_TIMEOUT: Duration = Duration::from_secs(10);
+const MODEL_WAIT_NOTICE_TIMEOUT: Duration = Duration::from_secs(10);
+const MODEL_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const PRIMARY_SESSION_EXTENSION: &str = "jsonl";
 const LEGACY_SESSION_EXTENSION: &str = "json";
 const LATEST_SESSION_REFERENCE: &str = "latest";
@@ -6818,23 +6820,43 @@ impl AnthropicRuntimeClient {
         let mut block_has_thinking_summary = false;
         let mut saw_stop = false;
         let mut received_any_event = false;
+        let stream_started_at = Instant::now();
+        let mut saw_visible_output = false;
+        let mut wait_notice_emitted = false;
 
         loop {
-            let next = if apply_stall_timeout && !received_any_event {
-                match tokio::time::timeout(POST_TOOL_STALL_TIMEOUT, stream.next_event()).await {
-                    Ok(inner) => inner.map_err(|error| {
-                        RuntimeError::new(format_user_visible_api_error(&self.session_id, &error))
-                    })?,
+            let next = loop {
+                match tokio::time::timeout(MODEL_WAIT_POLL_INTERVAL, stream.next_event()).await {
+                    Ok(inner) => {
+                        let next = inner.map_err(|error| {
+                            RuntimeError::new(format_user_visible_api_error(
+                                &self.session_id,
+                                &error,
+                            ))
+                        })?;
+                        break next;
+                    }
                     Err(_elapsed) => {
-                        return Err(RuntimeError::new(
-                            "post-tool stall: model did not respond within timeout",
-                        ));
+                        let elapsed = stream_started_at.elapsed();
+                        if apply_stall_timeout
+                            && !received_any_event
+                            && elapsed >= POST_TOOL_STALL_TIMEOUT
+                        {
+                            return Err(RuntimeError::new(
+                                "post-tool stall: model did not respond within timeout",
+                            ));
+                        }
+
+                        if should_emit_wait_notice(
+                            elapsed,
+                            saw_visible_output,
+                            wait_notice_emitted,
+                        ) {
+                            render_waiting_for_model_notice(out)?;
+                            wait_notice_emitted = true;
+                        }
                     }
                 }
-            } else {
-                stream.next_event().await.map_err(|error| {
-                    RuntimeError::new(format_user_visible_api_error(&self.session_id, &error))
-                })?
             };
 
             let Some(event) = next else {
@@ -6845,6 +6867,12 @@ impl AnthropicRuntimeClient {
             match event {
                 ApiStreamEvent::MessageStart(start) => {
                     for block in start.message.content {
+                        let renders_visible_output = match &block {
+                            OutputContentBlock::Text { text } => !text.is_empty(),
+                            OutputContentBlock::Thinking { .. }
+                            | OutputContentBlock::RedactedThinking { .. } => true,
+                            _ => false,
+                        };
                         push_output_block(
                             block,
                             out,
@@ -6854,9 +6882,18 @@ impl AnthropicRuntimeClient {
                             self.show_thinking,
                             &mut block_has_thinking_summary,
                         )?;
+                        if renders_visible_output {
+                            saw_visible_output = true;
+                        }
                     }
                 }
                 ApiStreamEvent::ContentBlockStart(start) => {
+                    let renders_visible_output = match &start.content_block {
+                        OutputContentBlock::Text { text } => !text.is_empty(),
+                        OutputContentBlock::Thinking { .. }
+                        | OutputContentBlock::RedactedThinking { .. } => true,
+                        _ => false,
+                    };
                     push_output_block(
                         start.content_block,
                         out,
@@ -6866,6 +6903,9 @@ impl AnthropicRuntimeClient {
                         self.show_thinking,
                         &mut block_has_thinking_summary,
                     )?;
+                    if renders_visible_output {
+                        saw_visible_output = true;
+                    }
                 }
                 ApiStreamEvent::ContentBlockDelta(delta) => match delta.delta {
                     ContentBlockDelta::TextDelta { text } => {
@@ -6878,6 +6918,7 @@ impl AnthropicRuntimeClient {
                                     .and_then(|()| out.flush())
                                     .map_err(|error| RuntimeError::new(error.to_string()))?;
                             }
+                            saw_visible_output = true;
                             events.push(AssistantEvent::TextDelta(text));
                         }
                     }
@@ -6893,9 +6934,11 @@ impl AnthropicRuntimeClient {
                                 &thinking,
                                 &mut block_has_thinking_summary,
                             )?;
+                            saw_visible_output = true;
                         } else if !block_has_thinking_summary {
                             render_thinking_block_summary(out, None, false)?;
                             block_has_thinking_summary = true;
+                            saw_visible_output = true;
                         }
                     }
                     ContentBlockDelta::SignatureDelta { .. } => {}
@@ -6915,6 +6958,7 @@ impl AnthropicRuntimeClient {
                         writeln!(out, "\n{}", format_tool_call_start(&name, &input))
                             .and_then(|()| out.flush())
                             .map_err(|error| RuntimeError::new(error.to_string()))?;
+                        saw_visible_output = true;
                         events.push(AssistantEvent::ToolUse { id, name, input });
                     }
                 }
@@ -6974,6 +7018,20 @@ fn request_ends_with_tool_result(request: &ApiRequest) -> bool {
         .messages
         .last()
         .is_some_and(|message| message.role == MessageRole::Tool)
+}
+
+fn should_emit_wait_notice(
+    elapsed: Duration,
+    saw_visible_output: bool,
+    notice_emitted: bool,
+) -> bool {
+    elapsed >= MODEL_WAIT_NOTICE_TIMEOUT && !saw_visible_output && !notice_emitted
+}
+
+fn render_waiting_for_model_notice(out: &mut (impl Write + ?Sized)) -> Result<(), RuntimeError> {
+    writeln!(out, "Aún esperando respuesta del modelo...")
+        .and_then(|()| out.flush())
+        .map_err(|error| RuntimeError::new(error.to_string()))
 }
 
 fn format_user_visible_api_error(session_id: &str, error: &api::ApiError) -> String {
@@ -10929,6 +10987,39 @@ UU conflicted.rs",
         assert!(!rendered.contains("raw 119"));
         assert!(rendered.contains("full result preserved in session"));
         assert!(output.contains("raw 119"));
+    }
+
+    #[test]
+    fn wait_notice_threshold_triggers_at_ten_seconds() {
+        assert!(!super::should_emit_wait_notice(
+            Duration::from_secs(9),
+            false,
+            false,
+        ));
+        assert!(super::should_emit_wait_notice(
+            Duration::from_secs(10),
+            false,
+            false,
+        ));
+        assert!(!super::should_emit_wait_notice(
+            Duration::from_secs(10),
+            true,
+            false,
+        ));
+        assert!(!super::should_emit_wait_notice(
+            Duration::from_secs(10),
+            false,
+            true,
+        ));
+    }
+
+    #[test]
+    fn render_waiting_notice_copy_is_stable() {
+        let mut out = Vec::new();
+        super::render_waiting_for_model_notice(&mut out).expect("waiting notice should render");
+
+        let rendered = String::from_utf8(out).expect("utf8");
+        assert_eq!(rendered, "Aún esperando respuesta del modelo...\n");
     }
 
     #[test]
