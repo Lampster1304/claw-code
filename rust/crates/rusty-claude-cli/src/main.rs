@@ -1127,9 +1127,7 @@ fn resolve_repl_model(cli_model: String) -> String {
 fn provider_label(kind: ProviderKind) -> &'static str {
     match kind {
         ProviderKind::Local => "local",
-        ProviderKind::Anthropic => "anthropic",
-        ProviderKind::Xai => "xai",
-        ProviderKind::OpenAi => "openai",
+        ProviderKind::Cloud => "cloud",
     }
 }
 
@@ -1568,10 +1566,6 @@ fn effective_provider_is_local() -> bool {
 
 #[allow(clippy::too_many_lines)]
 fn check_auth_health() -> DiagnosticCheck {
-    // Local-only short circuit: when the effective provider is Ollama we
-    // never need an Anthropic API key, an OAuth token, or a saved
-    // credential blob, so report a clean OK instead of a misleading
-    // "absent" warning.
     if effective_provider_is_local() {
         let base_url = env::var("AGCLI_LOCAL_BASE_URL")
             .ok()
@@ -1589,142 +1583,42 @@ fn check_auth_health() -> DiagnosticCheck {
         ])
         .with_data(Map::from_iter([
             ("local_mode".to_string(), json!(true)),
-            ("api_key_present".to_string(), json!(false)),
-            ("auth_token_present".to_string(), json!(false)),
-            ("saved_oauth_present".to_string(), json!(false)),
-            ("saved_oauth_expired".to_string(), json!(false)),
-            ("saved_oauth_expires_at".to_string(), Value::Null),
-            ("refresh_token_present".to_string(), json!(false)),
-            ("scopes".to_string(), json!(Vec::<String>::new())),
+            ("openai_api_key_present".to_string(), json!(false)),
         ]));
     }
 
-    let api_key_present = env::var("ANTHROPIC_API_KEY")
-        .ok()
-        .is_some_and(|value| !value.trim().is_empty());
-    let auth_token_present = env::var("ANTHROPIC_AUTH_TOKEN")
+    let openai_api_key_present = env::var("OPENAI_API_KEY")
         .ok()
         .is_some_and(|value| !value.trim().is_empty());
 
-    match load_oauth_credentials() {
-        Ok(Some(token_set)) => {
-            let expired = oauth_token_is_expired(&api::OAuthTokenSet {
-                access_token: token_set.access_token.clone(),
-                refresh_token: token_set.refresh_token.clone(),
-                expires_at: token_set.expires_at,
-                scopes: token_set.scopes.clone(),
-            });
-            let mut details = vec![
-                format!(
-                    "Environment       api_key={} auth_token={}",
-                    if api_key_present { "present" } else { "absent" },
-                    if auth_token_present {
-                        "present"
-                    } else {
-                        "absent"
-                    }
-                ),
-                format!(
-                    "Saved OAuth       expires_at={} refresh_token={} scopes={}",
-                    token_set
-                        .expires_at
-                        .map_or_else(|| "<none>".to_string(), |value| value.to_string()),
-                    if token_set.refresh_token.is_some() {
-                        "present"
-                    } else {
-                        "absent"
-                    },
-                    if token_set.scopes.is_empty() {
-                        "<none>".to_string()
-                    } else {
-                        token_set.scopes.join(",")
-                    }
-                ),
-            ];
-            if expired {
-                details.push(
-                    "Suggested action  agcli login to refresh local OAuth credentials".to_string(),
-                );
-            }
-            DiagnosticCheck::new(
-                "Auth",
-                if expired {
-                    DiagnosticLevel::Warn
-                } else {
-                    DiagnosticLevel::Ok
-                },
-                if expired {
-                    "saved OAuth credentials are present but expired"
-                } else if api_key_present || auth_token_present {
-                    "environment and saved credentials are available"
-                } else {
-                    "saved OAuth credentials are available"
-                },
-            )
-            .with_details(details)
-            .with_data(Map::from_iter([
-                ("api_key_present".to_string(), json!(api_key_present)),
-                ("auth_token_present".to_string(), json!(auth_token_present)),
-                ("saved_oauth_present".to_string(), json!(true)),
-                ("saved_oauth_expired".to_string(), json!(expired)),
-                (
-                    "saved_oauth_expires_at".to_string(),
-                    json!(token_set.expires_at),
-                ),
-                (
-                    "refresh_token_present".to_string(),
-                    json!(token_set.refresh_token.is_some()),
-                ),
-                ("scopes".to_string(), json!(token_set.scopes)),
-            ]))
+    DiagnosticCheck::new(
+        "Auth",
+        if openai_api_key_present {
+            DiagnosticLevel::Ok
+        } else {
+            DiagnosticLevel::Warn
+        },
+        if openai_api_key_present {
+            "cloud mode configured via OPENAI_API_KEY"
+        } else {
+            "cloud mode selected but OPENAI_API_KEY is missing"
+        },
+    )
+    .with_details(vec![format!(
+        "Environment       openai_api_key={}",
+        if openai_api_key_present {
+            "present"
+        } else {
+            "absent"
         }
-        Ok(None) => DiagnosticCheck::new(
-            "Auth",
-            if api_key_present || auth_token_present {
-                DiagnosticLevel::Ok
-            } else {
-                DiagnosticLevel::Warn
-            },
-            if api_key_present || auth_token_present {
-                "environment credentials are configured"
-            } else {
-                "no API key or saved OAuth credentials were found"
-            },
-        )
-        .with_details(vec![format!(
-            "Environment       api_key={} auth_token={}",
-            if api_key_present { "present" } else { "absent" },
-            if auth_token_present {
-                "present"
-            } else {
-                "absent"
-            }
-        )])
-        .with_data(Map::from_iter([
-            ("api_key_present".to_string(), json!(api_key_present)),
-            ("auth_token_present".to_string(), json!(auth_token_present)),
-            ("saved_oauth_present".to_string(), json!(false)),
-            ("saved_oauth_expired".to_string(), json!(false)),
-            ("saved_oauth_expires_at".to_string(), Value::Null),
-            ("refresh_token_present".to_string(), json!(false)),
-            ("scopes".to_string(), json!(Vec::<String>::new())),
-        ])),
-        Err(error) => DiagnosticCheck::new(
-            "Auth",
-            DiagnosticLevel::Fail,
-            format!("failed to inspect saved credentials: {error}"),
-        )
-        .with_data(Map::from_iter([
-            ("api_key_present".to_string(), json!(api_key_present)),
-            ("auth_token_present".to_string(), json!(auth_token_present)),
-            ("saved_oauth_present".to_string(), Value::Null),
-            ("saved_oauth_expired".to_string(), Value::Null),
-            ("saved_oauth_expires_at".to_string(), Value::Null),
-            ("refresh_token_present".to_string(), Value::Null),
-            ("scopes".to_string(), Value::Null),
-            ("saved_oauth_error".to_string(), json!(error.to_string())),
-        ])),
-    }
+    )])
+    .with_data(Map::from_iter([
+        ("local_mode".to_string(), json!(false)),
+        (
+            "openai_api_key_present".to_string(),
+            json!(openai_api_key_present),
+        ),
+    ]))
 }
 
 fn check_config_health(
@@ -2072,79 +1966,11 @@ fn default_oauth_config() -> OAuthConfig {
     }
 }
 
-fn run_login(output_format: CliOutputFormat) -> Result<(), Box<dyn std::error::Error>> {
-    let cwd = env::current_dir()?;
-    let config = ConfigLoader::default_for(&cwd).load()?;
-    let default_oauth = default_oauth_config();
-    let oauth = config.oauth().unwrap_or(&default_oauth);
-    let callback_port = oauth.callback_port.unwrap_or(DEFAULT_OAUTH_CALLBACK_PORT);
-    let redirect_uri = runtime::loopback_redirect_uri(callback_port);
-    let pkce = generate_pkce_pair()?;
-    let state = generate_state()?;
-    let authorize_url =
-        OAuthAuthorizationRequest::from_config(oauth, redirect_uri.clone(), state.clone(), &pkce)
-            .build_url();
-
-    if output_format == CliOutputFormat::Text {
-        println!("Starting Claude OAuth login...");
-        println!("Listening for callback on {redirect_uri}");
-    }
-    if let Err(error) = open_browser(&authorize_url) {
-        emit_login_browser_open_failure(
-            output_format,
-            &authorize_url,
-            &error,
-            &mut io::stdout(),
-            &mut io::stderr(),
-        )?;
-    }
-
-    let callback = wait_for_oauth_callback(callback_port)?;
-    if let Some(error) = callback.error {
-        let description = callback
-            .error_description
-            .unwrap_or_else(|| "authorization failed".to_string());
-        return Err(io::Error::other(format!("{error}: {description}")).into());
-    }
-    let code = callback.code.ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidData, "callback did not include code")
-    })?;
-    let returned_state = callback.state.ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidData, "callback did not include state")
-    })?;
-    if returned_state != state {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "oauth state mismatch").into());
-    }
-
-    let client = AnthropicClient::from_auth(AuthSource::None).with_base_url(api::read_base_url());
-    let exchange_request = OAuthTokenExchangeRequest::from_config(
-        oauth,
-        code,
-        state,
-        pkce.verifier,
-        redirect_uri.clone(),
-    );
-    let runtime = tokio::runtime::Runtime::new()?;
-    let token_set = runtime.block_on(client.exchange_oauth_code(oauth, &exchange_request))?;
-    save_oauth_credentials(&runtime::OAuthTokenSet {
-        access_token: token_set.access_token,
-        refresh_token: token_set.refresh_token,
-        expires_at: token_set.expires_at,
-        scopes: token_set.scopes,
-    })?;
-    match output_format {
-        CliOutputFormat::Text => println!("Claude OAuth login complete."),
-        CliOutputFormat::Json => println!(
-            "{}",
-            serde_json::to_string_pretty(&json!({
-                "kind": "login",
-                "callback_port": callback_port,
-                "redirect_uri": redirect_uri,
-                "message": "Claude OAuth login complete.",
-            }))?
-        ),
-    }
-    Ok(())
+fn run_login(_output_format: CliOutputFormat) -> Result<(), Box<dyn std::error::Error>> {
+    Err(io::Error::other(
+        "login is disabled in two-mode provider architecture (local/cloud openai-compatible)",
+    )
+    .into())
 }
 
 fn emit_login_browser_open_failure(
@@ -2164,19 +1990,11 @@ fn emit_login_browser_open_failure(
     }
 }
 
-fn run_logout(output_format: CliOutputFormat) -> Result<(), Box<dyn std::error::Error>> {
-    clear_oauth_credentials()?;
-    match output_format {
-        CliOutputFormat::Text => println!("Claude OAuth credentials cleared."),
-        CliOutputFormat::Json => println!(
-            "{}",
-            serde_json::to_string_pretty(&json!({
-                "kind": "logout",
-                "message": "Claude OAuth credentials cleared.",
-            }))?
-        ),
-    }
-    Ok(())
+fn run_logout(_output_format: CliOutputFormat) -> Result<(), Box<dyn std::error::Error>> {
+    Err(io::Error::other(
+        "logout is disabled in two-mode provider architecture (local/cloud openai-compatible)",
+    )
+    .into())
 }
 
 fn open_browser(url: &str) -> io::Result<()> {
@@ -6842,28 +6660,7 @@ impl AnthropicRuntimeClient {
             (_, other) => other,
         };
         let client = match provider_kind {
-            ProviderKind::Local => ApiProviderClient::from_model_with_anthropic_auth(
-                &resolved_model,
-                None,
-            )?,
-            ProviderKind::Anthropic => {
-                let auth = resolve_cli_auth_source()?;
-                let inner = AnthropicClient::from_auth(auth)
-                    .with_base_url(api::read_base_url())
-                    .with_prompt_cache(PromptCache::new(session_id));
-                ApiProviderClient::Anthropic(inner)
-            }
-            ProviderKind::Xai | ProviderKind::OpenAi => {
-                // The api crate's `ProviderClient::from_model_with_anthropic_auth`
-                // with `None` for the anthropic auth routes via
-                // `detect_provider_kind` and builds an
-                // `OpenAiCompatClient::from_env` with the matching
-                // `OpenAiCompatConfig` (openai / xai / dashscope).
-                // That reads the correct API-key env var and BASE_URL
-                // override internally, so this one call covers OpenAI,
-                // OpenRouter, xAI, DashScope, Ollama, and any other
-                // OpenAI-compat endpoint users configure via
-                // `OPENAI_BASE_URL` / `XAI_BASE_URL` / `DASHSCOPE_BASE_URL`.
+            ProviderKind::Local | ProviderKind::Cloud => {
                 ApiProviderClient::from_model_with_anthropic_auth(&resolved_model, None)?
             }
         };
@@ -8328,6 +8125,7 @@ fn print_help(output_format: CliOutputFormat) -> Result<(), Box<dyn std::error::
 mod tests {
     use super::{
         build_runtime_plugin_state_with_loader, build_runtime_with_plugin_state,
+        check_auth_health,
         collect_session_prompt_history, create_managed_session_handle, describe_tool_progress,
         filter_tool_specs, format_bughunter_report, format_commit_preflight_report,
         format_commit_skipped_report, format_compact_report, format_connected_line,
@@ -8345,6 +8143,7 @@ mod tests {
         render_session_markdown, resolve_model_alias, resolve_model_alias_with_config,
         resolve_repl_model, resolve_session_reference, response_to_events,
         resume_supported_slash_commands, run_resume_command, short_tool_id,
+        run_login, run_logout,
         slash_command_completion_candidates_with_sessions, status_context,
         summarize_tool_payload_for_markdown, validate_no_args, write_mcp_server_fixture, CliAction,
         CliOutputFormat, CliToolExecutor, GitWorkspaceSummary, InternalPromptProgressEvent,
@@ -10032,21 +9831,48 @@ mod tests {
     }
 
     #[test]
-    fn format_connected_line_renders_anthropic_provider_for_claude_model() {
-        let model = "claude-sonnet-4-6";
+    fn format_connected_line_renders_cloud_provider_for_openai_model() {
+        let model = "openai/gpt-4.1-mini";
 
         let line = format_connected_line(model);
 
-        assert_eq!(line, "Connected: claude-sonnet-4-6 via anthropic");
+        assert_eq!(line, "Connected: openai/gpt-4.1-mini via cloud");
     }
 
     #[test]
-    fn format_connected_line_renders_xai_provider_for_grok_model() {
-        let model = "grok-3";
+    fn check_auth_health_cloud_mode_reports_openai_key_status() {
+        let _guard = env_lock();
+        std::env::remove_var("AGCLI_LOCAL_PROVIDER");
+        std::env::remove_var("OLLAMA_HOST");
+        std::env::remove_var("ANTHROPIC_MODEL");
+        std::env::set_var("AGCLI_MODEL", "openai/gpt-4.1-mini");
+        std::env::set_var("OPENAI_API_KEY", "openai-test-key");
 
-        let line = format_connected_line(model);
+        let check = check_auth_health();
 
-        assert_eq!(line, "Connected: grok-3 via xai");
+        assert_eq!(check.name, "Auth");
+        assert!(check.summary.contains("cloud"));
+        assert!(
+            check
+                .details
+                .iter()
+                .any(|detail| detail.contains("openai_api_key=present"))
+        );
+
+        std::env::remove_var("OPENAI_API_KEY");
+        std::env::remove_var("AGCLI_MODEL");
+    }
+
+    #[test]
+    fn run_login_is_disabled_in_two_mode_provider_architecture() {
+        let error = run_login(CliOutputFormat::Text).expect_err("login should be disabled");
+        assert!(error.to_string().contains("disabled"));
+    }
+
+    #[test]
+    fn run_logout_is_disabled_in_two_mode_provider_architecture() {
+        let error = run_logout(CliOutputFormat::Text).expect_err("logout should be disabled");
+        assert!(error.to_string().contains("disabled"));
     }
 
     #[test]
@@ -10059,21 +9885,21 @@ mod tests {
     }
 
     #[test]
-    fn resolve_repl_model_falls_back_to_anthropic_model_env_when_default() {
+    fn resolve_repl_model_falls_back_to_agcli_model_env_when_default() {
         let _guard = env_lock();
         let root = temp_dir();
         fs::create_dir_all(&root).expect("root dir");
         let config_home = root.join("config");
         fs::create_dir_all(&config_home).expect("config home dir");
         std::env::set_var("AGCLI_CONFIG_HOME", &config_home);
-        std::env::remove_var("ANTHROPIC_MODEL");
-        std::env::set_var("ANTHROPIC_MODEL", "sonnet");
+        std::env::remove_var("AGCLI_MODEL");
+        std::env::set_var("AGCLI_MODEL", "sonnet");
 
         let resolved = with_current_dir(&root, || resolve_repl_model(DEFAULT_MODEL.to_string()));
 
         assert_eq!(resolved, "claude-sonnet-4-6");
 
-        std::env::remove_var("ANTHROPIC_MODEL");
+        std::env::remove_var("AGCLI_MODEL");
         std::env::remove_var("AGCLI_CONFIG_HOME");
         fs::remove_dir_all(root).expect("cleanup temp dir");
     }
@@ -10086,7 +9912,7 @@ mod tests {
         let config_home = root.join("config");
         fs::create_dir_all(&config_home).expect("config home dir");
         std::env::set_var("AGCLI_CONFIG_HOME", &config_home);
-        std::env::remove_var("ANTHROPIC_MODEL");
+        std::env::remove_var("AGCLI_MODEL");
 
         let resolved = with_current_dir(&root, || resolve_repl_model(DEFAULT_MODEL.to_string()));
 
