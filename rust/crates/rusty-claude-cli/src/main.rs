@@ -3677,6 +3677,8 @@ impl LiveCli {
         match result {
             Ok(summary) => {
                 self.replace_runtime(runtime)?;
+                write_turn_completion_preamble(&mut stdout)
+                    .map_err(|error| Box::new(error) as Box<dyn std::error::Error>)?;
                 spinner.finish(
                     "✨ Done",
                     TerminalRenderer::new().color_theme(),
@@ -3694,6 +3696,8 @@ impl LiveCli {
             }
             Err(error) => {
                 runtime.shutdown_plugins()?;
+                write_turn_completion_preamble(&mut stdout)
+                    .map_err(|error| Box::new(error) as Box<dyn std::error::Error>)?;
                 spinner.fail(
                     "❌ Request failed",
                     TerminalRenderer::new().color_theme(),
@@ -4586,6 +4590,12 @@ impl LiveCli {
         println!("{}", format_issue_report(context));
         Ok(())
     }
+}
+
+fn write_turn_completion_preamble(out: &mut (impl Write + ?Sized)) -> Result<(), RuntimeError> {
+    write!(out, "\n")
+        .and_then(|()| out.flush())
+        .map_err(|error| RuntimeError::new(error.to_string()))
 }
 
 fn sessions_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
@@ -11095,6 +11105,14 @@ UU conflicted.rs",
 
         let rendered = String::from_utf8(out).expect("utf8");
         assert_eq!(rendered, "Aún esperando respuesta del modelo...\n");
+    }
+
+    #[test]
+    fn turn_completion_preamble_writes_newline() {
+        let mut out = Vec::new();
+        super::write_turn_completion_preamble(&mut out).expect("preamble should render");
+        let rendered = String::from_utf8(out).expect("utf8");
+        assert_eq!(rendered, "\n");
     }
 
     #[test]
