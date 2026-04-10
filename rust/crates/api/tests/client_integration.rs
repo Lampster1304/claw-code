@@ -461,8 +461,29 @@ async fn retries_retryable_failures_before_succeeding() {
 #[tokio::test]
 async fn provider_client_dispatches_cloud_requests() {
     let _lock = env_lock();
-    let previous_openai_api_key = std::env::var_os("OPENAI_API_KEY");
-    let previous_openai_base_url = std::env::var_os("OPENAI_BASE_URL");
+
+    struct OpenAiEnvGuard {
+        previous_api_key: Option<std::ffi::OsString>,
+        previous_base_url: Option<std::ffi::OsString>,
+    }
+
+    impl Drop for OpenAiEnvGuard {
+        fn drop(&mut self) {
+            match &self.previous_api_key {
+                Some(value) => std::env::set_var("OPENAI_API_KEY", value),
+                None => std::env::remove_var("OPENAI_API_KEY"),
+            }
+            match &self.previous_base_url {
+                Some(value) => std::env::set_var("OPENAI_BASE_URL", value),
+                None => std::env::remove_var("OPENAI_BASE_URL"),
+            }
+        }
+    }
+
+    let _restore_env = OpenAiEnvGuard {
+        previous_api_key: std::env::var_os("OPENAI_API_KEY"),
+        previous_base_url: std::env::var_os("OPENAI_BASE_URL"),
+    };
 
     let state = Arc::new(Mutex::new(Vec::<CapturedRequest>::new()));
     let server = spawn_server(
@@ -484,15 +505,6 @@ async fn provider_client_dispatches_cloud_requests() {
         .send_message(&sample_request(false))
         .await
         .expect("cloud provider request should succeed");
-
-    match previous_openai_api_key {
-        Some(value) => std::env::set_var("OPENAI_API_KEY", value),
-        None => std::env::remove_var("OPENAI_API_KEY"),
-    }
-    match previous_openai_base_url {
-        Some(value) => std::env::set_var("OPENAI_BASE_URL", value),
-        None => std::env::remove_var("OPENAI_BASE_URL"),
-    }
 
     assert_eq!(response.total_tokens(), 5);
 
