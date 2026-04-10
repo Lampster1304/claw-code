@@ -51,6 +51,12 @@ cd rust
 ./target/debug/agcli
 ```
 
+### Interactive output behavior
+
+- In interactive REPL mode, AGCLI shows live thinking by default.
+- Use `--hide-thinking` to collapse/hide thinking output in REPL.
+- `--output-format json` and `--compact` remain machine-friendly.
+
 ### One-shot prompt
 
 ```bash
