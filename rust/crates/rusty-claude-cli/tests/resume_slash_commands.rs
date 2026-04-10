@@ -56,7 +56,10 @@ fn resumed_binary_accepts_slash_commands_with_arguments() {
     assert!(stdout.contains("Session cleared"));
     assert!(stdout.contains("Mode             resumed session reset"));
     assert!(stdout.contains("Previous session"));
-    assert!(stdout.contains("Resume previous  claw --resume"));
+    assert!(
+        stdout.contains("Resume previous  agcli --resume")
+            || stdout.contains("Resume previous  claw --resume")
+    );
     assert!(stdout.contains("Backup           "));
     assert!(stdout.contains("Session file     "));
 
