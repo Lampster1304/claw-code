@@ -4,7 +4,7 @@ use std::sync::{Mutex as StdMutex, OnceLock};
 use std::time::Duration;
 
 use api::{
-    AnthropicClient, ApiClient, ApiError, AuthSource, ContentBlockDelta, ContentBlockDeltaEvent,
+    AnthropicClient, ApiClient, ApiError, ContentBlockDelta, ContentBlockDeltaEvent,
     ContentBlockStartEvent, InputContentBlock, InputMessage, MessageDeltaEvent, MessageRequest,
     OutputContentBlock, PromptCache, PromptCacheConfig, ProviderClient, StreamEvent, ToolChoice,
     ToolDefinition,
@@ -457,46 +457,54 @@ async fn retries_retryable_failures_before_succeeding() {
     assert_eq!(state.lock().await.len(), 2);
 }
 
+#[allow(clippy::await_holding_lock)]
 #[tokio::test]
-async fn provider_client_dispatches_anthropic_requests() {
+async fn provider_client_dispatches_cloud_requests() {
+    let _lock = env_lock();
+    let previous_openai_api_key = std::env::var_os("OPENAI_API_KEY");
+    let previous_openai_base_url = std::env::var_os("OPENAI_BASE_URL");
+
     let state = Arc::new(Mutex::new(Vec::<CapturedRequest>::new()));
     let server = spawn_server(
         state.clone(),
         vec![http_response(
             "200 OK",
             "application/json",
-            "{\"id\":\"msg_provider\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Dispatched\"}],\"model\":\"claude-3-7-sonnet-latest\",\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":3,\"output_tokens\":2}}",
+            r#"{"id":"chatcmpl_provider","model":"gpt-4.1-mini","choices":[{"message":{"role":"assistant","content":"Dispatched","tool_calls":[]},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2}}"#,
         )],
     )
     .await;
 
-    let client = ProviderClient::from_model_with_anthropic_auth(
-        "claude-sonnet-4-6",
-        Some(AuthSource::ApiKey("test-key".to_string())),
-    )
-    .expect("anthropic provider client should be constructed");
-    let client = match client {
-        ProviderClient::Anthropic(client) => {
-            ProviderClient::Anthropic(client.with_base_url(server.base_url()))
-        }
-        other => panic!("expected anthropic provider, got {other:?}"),
-    };
+    std::env::set_var("OPENAI_API_KEY", "openai-test-key");
+    std::env::set_var("OPENAI_BASE_URL", server.base_url());
 
+    let client = ProviderClient::from_model("openai/gpt-4.1-mini")
+        .expect("cloud provider should construct");
     let response = client
         .send_message(&sample_request(false))
         .await
-        .expect("provider-dispatched request should succeed");
+        .expect("cloud provider request should succeed");
+
+    match previous_openai_api_key {
+        Some(value) => std::env::set_var("OPENAI_API_KEY", value),
+        None => std::env::remove_var("OPENAI_API_KEY"),
+    }
+    match previous_openai_base_url {
+        Some(value) => std::env::set_var("OPENAI_BASE_URL", value),
+        None => std::env::remove_var("OPENAI_BASE_URL"),
+    }
 
     assert_eq!(response.total_tokens(), 5);
 
     let captured = state.lock().await;
     let request = captured.first().expect("server should capture request");
-    assert_eq!(request.path, "/v1/messages");
+    assert_eq!(request.path, "/chat/completions");
     assert_eq!(
-        request.headers.get("x-api-key").map(String::as_str),
-        Some("test-key")
+        request.headers.get("authorization").map(String::as_str),
+        Some("Bearer openai-test-key")
     );
 }
+
 
 #[tokio::test]
 async fn surfaces_retry_exhaustion_for_persistent_retryable_errors() {

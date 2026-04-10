@@ -1,58 +1,48 @@
 use std::ffi::OsString;
 use std::sync::{Mutex, OnceLock};
 
-use api::{read_xai_base_url, ApiError, AuthSource, ProviderClient, ProviderKind};
+use api::{ApiError, ProviderClient, ProviderKind};
 
 #[test]
-fn provider_client_routes_grok_aliases_through_xai() {
+fn provider_client_routes_openai_prefixed_model_to_cloud() {
     let _lock = env_lock();
-    let _xai_api_key = EnvVarGuard::set("XAI_API_KEY", Some("xai-test-key"));
+    let _openai_api_key = EnvVarGuard::set("OPENAI_API_KEY", Some("openai-test-key"));
 
-    let client = ProviderClient::from_model("grok-mini").expect("grok alias should resolve");
+    let client =
+        ProviderClient::from_model("openai/gpt-4.1-mini").expect("cloud route should resolve");
 
-    assert_eq!(client.provider_kind(), ProviderKind::Xai);
+    assert_eq!(client.provider_kind(), ProviderKind::Cloud);
 }
 
 #[test]
-fn provider_client_reports_missing_xai_credentials_for_grok_models() {
+fn provider_client_prefers_local_when_ollama_host_is_set() {
     let _lock = env_lock();
-    let _xai_api_key = EnvVarGuard::set("XAI_API_KEY", None);
+    let _openai_api_key = EnvVarGuard::set("OPENAI_API_KEY", Some("openai-test-key"));
+    let _ollama_host = EnvVarGuard::set("OLLAMA_HOST", Some("http://127.0.0.1:11434"));
 
-    let error = ProviderClient::from_model("grok-3")
-        .expect_err("grok requests without XAI_API_KEY should fail fast");
+    let client = ProviderClient::from_model("llama3.2").expect("local route should resolve");
+
+    assert_eq!(client.provider_kind(), ProviderKind::Local);
+}
+
+#[test]
+fn provider_client_reports_missing_openai_credentials_for_cloud_models() {
+    let _lock = env_lock();
+    let _openai_api_key = EnvVarGuard::set("OPENAI_API_KEY", None);
+    let _ollama_host = EnvVarGuard::set("OLLAMA_HOST", None);
+
+    let error = ProviderClient::from_model("openai/gpt-4.1-mini")
+        .expect_err("cloud requests without OPENAI_API_KEY should fail fast");
 
     match error {
         ApiError::MissingCredentials {
             provider, env_vars, ..
         } => {
-            assert_eq!(provider, "xAI");
-            assert_eq!(env_vars, &["XAI_API_KEY"]);
+            assert_eq!(provider, "OpenAI");
+            assert_eq!(env_vars, &["OPENAI_API_KEY"]);
         }
-        other => panic!("expected missing xAI credentials, got {other:?}"),
+        other => panic!("expected missing OpenAI credentials, got {other:?}"),
     }
-}
-
-#[test]
-fn provider_client_uses_explicit_anthropic_auth_without_env_lookup() {
-    let _lock = env_lock();
-    let _anthropic_api_key = EnvVarGuard::set("ANTHROPIC_API_KEY", None);
-    let _anthropic_auth_token = EnvVarGuard::set("ANTHROPIC_AUTH_TOKEN", None);
-
-    let client = ProviderClient::from_model_with_anthropic_auth(
-        "claude-sonnet-4-6",
-        Some(AuthSource::ApiKey("anthropic-test-key".to_string())),
-    )
-    .expect("explicit anthropic auth should avoid env lookup");
-
-    assert_eq!(client.provider_kind(), ProviderKind::Anthropic);
-}
-
-#[test]
-fn read_xai_base_url_prefers_env_override() {
-    let _lock = env_lock();
-    let _xai_base_url = EnvVarGuard::set("XAI_BASE_URL", Some("https://example.xai.test/v1"));
-
-    assert_eq!(read_xai_base_url(), "https://example.xai.test/v1");
 }
 
 fn env_lock() -> std::sync::MutexGuard<'static, ()> {
