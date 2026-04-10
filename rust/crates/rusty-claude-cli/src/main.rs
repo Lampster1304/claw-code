@@ -97,6 +97,7 @@ const CLI_OPTION_SUGGESTIONS: &[&str] = &[
     "--resume",
     "--print",
     "--compact",
+    "--hide-thinking",
     "--base-commit",
     "-p",
 ];
@@ -179,6 +180,7 @@ fn merge_prompt_with_stdin(prompt: &str, stdin_content: Option<&str>) -> String 
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().skip(1).collect();
+    let hide_thinking = args.iter().any(|arg| arg == "--hide-thinking");
     match parse_args(&args)? {
         CliAction::DumpManifests { output_format } => dump_manifests(output_format)?,
         CliAction::BootstrapPlan { output_format } => print_bootstrap_plan(output_format)?,
@@ -240,7 +242,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 None
             };
             let effective_prompt = merge_prompt_with_stdin(&prompt, stdin_context.as_deref());
-            let mut cli = LiveCli::new(model, true, allowed_tools, permission_mode)?;
+            let mut cli = LiveCli::new(model, true, allowed_tools, permission_mode, false)?;
             cli.set_reasoning_effort(reasoning_effort);
             cli.run_turn_with_output(&effective_prompt, output_format, compact)?;
         }
@@ -268,6 +270,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             base_commit,
             reasoning_effort,
             allow_broad_cwd,
+            hide_thinking,
         )?,
         CliAction::HelpTopic(topic) => print_help_topic(topic),
         CliAction::Help { output_format } => print_help(output_format)?,
@@ -401,6 +404,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
     let mut wants_version = false;
     let mut allowed_tool_values = Vec::new();
     let mut compact = false;
+    let mut _hide_thinking = false;
     let mut base_commit: Option<String> = None;
     let mut reasoning_effort: Option<String> = None;
     let mut allow_broad_cwd = false;
@@ -481,6 +485,10 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
             }
             "--compact" => {
                 compact = true;
+                index += 1;
+            }
+            "--hide-thinking" => {
+                _hide_thinking = true;
                 index += 1;
             }
             "--base-commit" => {
@@ -2914,11 +2922,18 @@ fn run_repl(
     base_commit: Option<String>,
     reasoning_effort: Option<String>,
     allow_broad_cwd: bool,
+    hide_thinking: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     enforce_broad_cwd_policy(allow_broad_cwd, CliOutputFormat::Text)?;
     run_stale_base_preflight(base_commit.as_deref());
     let resolved_model = resolve_repl_model(model);
-    let mut cli = LiveCli::new(resolved_model, true, allowed_tools, permission_mode)?;
+    let mut cli = LiveCli::new(
+        resolved_model,
+        true,
+        allowed_tools,
+        permission_mode,
+        hide_thinking,
+    )?;
     cli.set_reasoning_effort(reasoning_effort);
     let mut editor =
         input::LineEditor::new("> ", cli.repl_completion_candidates().unwrap_or_default());
@@ -3005,6 +3020,7 @@ struct LiveCli {
     model: String,
     allowed_tools: Option<AllowedToolSet>,
     permission_mode: PermissionMode,
+    hide_thinking: bool,
     system_prompt: Vec<String>,
     runtime: BuiltRuntime,
     session: SessionHandle,
@@ -3494,6 +3510,7 @@ impl LiveCli {
         enable_tools: bool,
         allowed_tools: Option<AllowedToolSet>,
         permission_mode: PermissionMode,
+        hide_thinking: bool,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let system_prompt = build_system_prompt()?;
         let session_state = Session::new();
@@ -3513,6 +3530,7 @@ impl LiveCli {
             model,
             allowed_tools,
             permission_mode,
+            hide_thinking,
             system_prompt,
             runtime,
             session,
@@ -8039,6 +8057,10 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     )?;
     writeln!(
         out,
+        "  --hide-thinking            Hide assistant thinking traces in interactive REPL output"
+    )?;
+    writeln!(
+        out,
         "  --permission-mode MODE     Set read-only, workspace-write, or danger-full-access"
     )?;
     writeln!(
@@ -8940,6 +8962,25 @@ mod tests {
     }
 
     #[test]
+    fn parses_hide_thinking_flag_without_changing_action_shape() {
+        let _guard = env_lock();
+        std::env::remove_var("RUSTY_CLAUDE_PERMISSION_MODE");
+        std::env::remove_var("AGCLI_PERMISSION_MODE");
+        let args = vec!["--hide-thinking".to_string()];
+        assert_eq!(
+            parse_args(&args).expect("args should parse"),
+            CliAction::Repl {
+                model: DEFAULT_MODEL.to_string(),
+                allowed_tools: None,
+                permission_mode: PermissionMode::WorkspaceWrite,
+                base_commit: None,
+                reasoning_effort: None,
+                allow_broad_cwd: false,
+            }
+        );
+    }
+
+    #[test]
     fn parses_allowed_tools_flags_with_aliases_and_lists() {
         let _guard = env_lock();
         std::env::remove_var("RUSTY_CLAUDE_PERMISSION_MODE");
@@ -9818,6 +9859,7 @@ mod tests {
                 true,
                 None,
                 PermissionMode::DangerFullAccess,
+                false,
             )
             .expect("cli should initialize")
             .startup_banner()
@@ -10010,6 +10052,14 @@ mod tests {
         assert!(help.contains("agcli mcp"));
         assert!(help.contains("agcli skills"));
         assert!(help.contains("agcli /skills"));
+    }
+
+    #[test]
+    fn help_lists_hide_thinking_flag() {
+        let mut help = Vec::new();
+        print_help_to(&mut help).expect("help should render");
+        let help = String::from_utf8(help).expect("help should be utf8");
+        assert!(help.contains("--hide-thinking"));
     }
 
     #[test]
