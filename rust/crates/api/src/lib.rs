@@ -21,6 +21,7 @@ pub use prompt_cache::{
 pub use providers::anthropic::{AnthropicClient, AnthropicClient as ApiClient, AuthSource};
 pub use providers::ollama::{local_provider_enabled, OllamaClient, DEFAULT_OLLAMA_BASE_URL};
 pub use providers::openai_compat::{OpenAiCompatClient, OpenAiCompatConfig};
+// Two-mode provider routing surface (Local/Cloud).
 pub use providers::{
     detect_provider_kind, max_tokens_for_model, max_tokens_for_model_with_override,
     resolve_model_alias, ProviderKind,

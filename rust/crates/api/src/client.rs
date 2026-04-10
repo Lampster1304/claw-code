@@ -1,7 +1,7 @@
 use crate::error::ApiError;
 use crate::providers::ollama::{self, OllamaClient};
 use crate::prompt_cache::{PromptCache, PromptCacheRecord, PromptCacheStats};
-use crate::providers::anthropic::{self, AnthropicClient, AuthSource};
+use crate::providers::anthropic::{self, AuthSource};
 use crate::providers::openai_compat::{self, OpenAiCompatClient, OpenAiCompatConfig};
 use crate::providers::{self, ProviderKind};
 use crate::types::{MessageRequest, MessageResponse, StreamEvent};
@@ -10,9 +10,7 @@ use crate::types::{MessageRequest, MessageResponse, StreamEvent};
 #[derive(Debug, Clone)]
 pub enum ProviderClient {
     Local(OllamaClient),
-    Anthropic(AnthropicClient),
-    Xai(OpenAiCompatClient),
-    OpenAi(OpenAiCompatClient),
+    Cloud(OpenAiCompatClient),
 }
 
 impl ProviderClient {
@@ -22,30 +20,14 @@ impl ProviderClient {
 
     pub fn from_model_with_anthropic_auth(
         model: &str,
-        anthropic_auth: Option<AuthSource>,
+        _anthropic_auth: Option<AuthSource>,
     ) -> Result<Self, ApiError> {
         let resolved_model = providers::resolve_model_alias(model);
         match providers::detect_provider_kind(&resolved_model) {
             ProviderKind::Local => Ok(Self::Local(OllamaClient::from_model(&resolved_model))),
-            ProviderKind::Anthropic => Ok(Self::Anthropic(match anthropic_auth {
-                Some(auth) => AnthropicClient::from_auth(auth),
-                None => AnthropicClient::from_env()?,
-            })),
-            ProviderKind::Xai => Ok(Self::Xai(OpenAiCompatClient::from_env(
-                OpenAiCompatConfig::xai(),
+            ProviderKind::Cloud => Ok(Self::Cloud(OpenAiCompatClient::from_env(
+                OpenAiCompatConfig::openai(),
             )?)),
-            ProviderKind::OpenAi => {
-                // DashScope models (qwen-*) also return ProviderKind::OpenAi because they
-                // speak the OpenAI wire format, but they need the DashScope config which
-                // reads DASHSCOPE_API_KEY and points at dashscope.aliyuncs.com.
-                let config = match providers::metadata_for_model(&resolved_model) {
-                    Some(meta) if meta.auth_env == "DASHSCOPE_API_KEY" => {
-                        OpenAiCompatConfig::dashscope()
-                    }
-                    _ => OpenAiCompatConfig::openai(),
-                };
-                Ok(Self::OpenAi(OpenAiCompatClient::from_env(config)?))
-            }
         }
     }
 
@@ -53,18 +35,15 @@ impl ProviderClient {
     pub const fn provider_kind(&self) -> ProviderKind {
         match self {
             Self::Local(_) => ProviderKind::Local,
-            Self::Anthropic(_) => ProviderKind::Anthropic,
-            Self::Xai(_) => ProviderKind::Xai,
-            Self::OpenAi(_) => ProviderKind::OpenAi,
+            Self::Cloud(_) => ProviderKind::Cloud,
         }
     }
 
     #[must_use]
     pub fn with_prompt_cache(self, prompt_cache: PromptCache) -> Self {
         match self {
-            Self::Anthropic(client) => Self::Anthropic(client.with_prompt_cache(prompt_cache)),
             Self::Local(client) => Self::Local(client.with_prompt_cache(prompt_cache)),
-            other => other,
+            Self::Cloud(client) => Self::Cloud(client),
         }
     }
 
@@ -72,8 +51,7 @@ impl ProviderClient {
     pub fn prompt_cache_stats(&self) -> Option<PromptCacheStats> {
         match self {
             Self::Local(client) => client.prompt_cache_stats(),
-            Self::Anthropic(client) => client.prompt_cache_stats(),
-            Self::Xai(_) | Self::OpenAi(_) => None,
+            Self::Cloud(_) => None,
         }
     }
 
@@ -81,8 +59,7 @@ impl ProviderClient {
     pub fn take_last_prompt_cache_record(&self) -> Option<PromptCacheRecord> {
         match self {
             Self::Local(client) => client.take_last_prompt_cache_record(),
-            Self::Anthropic(client) => client.take_last_prompt_cache_record(),
-            Self::Xai(_) | Self::OpenAi(_) => None,
+            Self::Cloud(_) => None,
         }
     }
 
@@ -92,8 +69,7 @@ impl ProviderClient {
     ) -> Result<MessageResponse, ApiError> {
         match self {
             Self::Local(client) => client.send_message(request).await,
-            Self::Anthropic(client) => client.send_message(request).await,
-            Self::Xai(client) | Self::OpenAi(client) => client.send_message(request).await,
+            Self::Cloud(client) => client.send_message(request).await,
         }
     }
 
@@ -103,11 +79,7 @@ impl ProviderClient {
     ) -> Result<MessageStream, ApiError> {
         match self {
             Self::Local(client) => client.stream_message(request).await.map(MessageStream::Local),
-            Self::Anthropic(client) => client
-                .stream_message(request)
-                .await
-                .map(MessageStream::Anthropic),
-            Self::Xai(client) | Self::OpenAi(client) => client
+            Self::Cloud(client) => client
                 .stream_message(request)
                 .await
                 .map(MessageStream::OpenAiCompat),
@@ -118,7 +90,6 @@ impl ProviderClient {
 #[derive(Debug)]
 pub enum MessageStream {
     Local(ollama::MessageStream),
-    Anthropic(anthropic::MessageStream),
     OpenAiCompat(openai_compat::MessageStream),
 }
 
@@ -127,7 +98,6 @@ impl MessageStream {
     pub fn request_id(&self) -> Option<&str> {
         match self {
             Self::Local(stream) => stream.request_id(),
-            Self::Anthropic(stream) => stream.request_id(),
             Self::OpenAiCompat(stream) => stream.request_id(),
         }
     }
@@ -135,7 +105,6 @@ impl MessageStream {
     pub async fn next_event(&mut self) -> Result<Option<StreamEvent>, ApiError> {
         match self {
             Self::Local(stream) => stream.next_event().await,
-            Self::Anthropic(stream) => stream.next_event().await,
             Self::OpenAiCompat(stream) => stream.next_event().await,
         }
     }
@@ -146,7 +115,7 @@ pub use anthropic::{
 };
 #[must_use]
 pub fn read_base_url() -> String {
-    anthropic::read_base_url()
+    openai_compat::read_base_url(OpenAiCompatConfig::openai())
 }
 
 #[must_use]
@@ -179,12 +148,23 @@ mod tests {
     }
 
     #[test]
-    fn provider_detection_prefers_model_family() {
-        assert_eq!(detect_provider_kind("grok-3"), ProviderKind::Xai);
-        assert_eq!(
-            detect_provider_kind("claude-sonnet-4-6"),
-            ProviderKind::Anthropic
-        );
+    fn provider_detection_prefers_local_when_local_env_and_openai_key_both_set() {
+        let _lock = env_lock();
+        let _local_provider = EnvVarGuard::set("AGCLI_LOCAL_PROVIDER", Some("ollama"));
+        let _openai = EnvVarGuard::set("OPENAI_API_KEY", Some("test-openai-key"));
+
+        assert_eq!(detect_provider_kind("llama3.2"), ProviderKind::Local);
+    }
+
+    #[test]
+    fn provider_client_routes_openai_prefixed_model_to_cloud() {
+        let _lock = env_lock();
+        let _openai = EnvVarGuard::set("OPENAI_API_KEY", Some("test-openai-key"));
+
+        let client = ProviderClient::from_model("openai/gpt-4.1-mini")
+            .expect("cloud provider client should be constructed");
+
+        assert_eq!(client.provider_kind(), ProviderKind::Cloud);
     }
 
     /// Snapshot-restore guard for a single environment variable. Mirrors
@@ -217,35 +197,28 @@ mod tests {
     }
 
     #[test]
-    fn dashscope_model_uses_dashscope_config_not_openai() {
-        // Regression: qwen-plus was being routed to OpenAiCompatConfig::openai()
-        // which reads OPENAI_API_KEY and points at api.openai.com, when it should
-        // use OpenAiCompatConfig::dashscope() which reads DASHSCOPE_API_KEY and
-        // points at dashscope.aliyuncs.com.
+    fn provider_client_defaults_to_cloud_openai_config() {
         let _lock = env_lock();
-        let _dashscope = EnvVarGuard::set("DASHSCOPE_API_KEY", Some("test-dashscope-key"));
-        let _openai = EnvVarGuard::set("OPENAI_API_KEY", None);
+        let _openai = EnvVarGuard::set("OPENAI_API_KEY", Some("test-openai-key"));
 
-        let client = ProviderClient::from_model("qwen-plus");
+        let client = ProviderClient::from_model("gpt-4o-mini");
 
-        // Must succeed (not fail with "missing OPENAI_API_KEY")
         assert!(
             client.is_ok(),
-            "qwen-plus with DASHSCOPE_API_KEY set should build successfully, got: {:?}",
+            "gpt-4o-mini with OPENAI_API_KEY set should build successfully, got: {:?}",
             client.err()
         );
 
-        // Verify it's the OpenAi variant pointed at the DashScope base URL.
         match client.unwrap() {
-            ProviderClient::OpenAi(openai_client) => {
+            ProviderClient::Cloud(openai_client) => {
                 assert!(
-                    openai_client.base_url().contains("dashscope.aliyuncs.com"),
-                    "qwen-plus should route to DashScope base URL (contains 'dashscope.aliyuncs.com'), got: {}",
+                    openai_client.base_url().contains("api.openai.com"),
+                    "gpt-4o-mini should route to OpenAI base URL, got: {}",
                     openai_client.base_url()
                 );
             }
             other => panic!(
-                "Expected ProviderClient::OpenAi for qwen-plus, got: {:?}",
+                "Expected ProviderClient::Cloud for gpt-4o-mini, got: {:?}",
                 other
             ),
         }

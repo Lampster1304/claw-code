@@ -31,10 +31,8 @@ pub trait Provider {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderKind {
-    Anthropic,
-    Xai,
-    OpenAi,
     Local,
+    Cloud,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,7 +53,7 @@ const MODEL_REGISTRY: &[(&str, ProviderMetadata)] = &[
     (
         "opus",
         ProviderMetadata {
-            provider: ProviderKind::Anthropic,
+            provider: ProviderKind::Cloud,
             auth_env: "ANTHROPIC_API_KEY",
             base_url_env: "ANTHROPIC_BASE_URL",
             default_base_url: anthropic::DEFAULT_BASE_URL,
@@ -64,7 +62,7 @@ const MODEL_REGISTRY: &[(&str, ProviderMetadata)] = &[
     (
         "sonnet",
         ProviderMetadata {
-            provider: ProviderKind::Anthropic,
+            provider: ProviderKind::Cloud,
             auth_env: "ANTHROPIC_API_KEY",
             base_url_env: "ANTHROPIC_BASE_URL",
             default_base_url: anthropic::DEFAULT_BASE_URL,
@@ -73,7 +71,7 @@ const MODEL_REGISTRY: &[(&str, ProviderMetadata)] = &[
     (
         "haiku",
         ProviderMetadata {
-            provider: ProviderKind::Anthropic,
+            provider: ProviderKind::Cloud,
             auth_env: "ANTHROPIC_API_KEY",
             base_url_env: "ANTHROPIC_BASE_URL",
             default_base_url: anthropic::DEFAULT_BASE_URL,
@@ -82,7 +80,7 @@ const MODEL_REGISTRY: &[(&str, ProviderMetadata)] = &[
     (
         "grok",
         ProviderMetadata {
-            provider: ProviderKind::Xai,
+            provider: ProviderKind::Cloud,
             auth_env: "XAI_API_KEY",
             base_url_env: "XAI_BASE_URL",
             default_base_url: openai_compat::DEFAULT_XAI_BASE_URL,
@@ -91,7 +89,7 @@ const MODEL_REGISTRY: &[(&str, ProviderMetadata)] = &[
     (
         "grok-3",
         ProviderMetadata {
-            provider: ProviderKind::Xai,
+            provider: ProviderKind::Cloud,
             auth_env: "XAI_API_KEY",
             base_url_env: "XAI_BASE_URL",
             default_base_url: openai_compat::DEFAULT_XAI_BASE_URL,
@@ -100,7 +98,7 @@ const MODEL_REGISTRY: &[(&str, ProviderMetadata)] = &[
     (
         "grok-mini",
         ProviderMetadata {
-            provider: ProviderKind::Xai,
+            provider: ProviderKind::Cloud,
             auth_env: "XAI_API_KEY",
             base_url_env: "XAI_BASE_URL",
             default_base_url: openai_compat::DEFAULT_XAI_BASE_URL,
@@ -109,7 +107,7 @@ const MODEL_REGISTRY: &[(&str, ProviderMetadata)] = &[
     (
         "grok-3-mini",
         ProviderMetadata {
-            provider: ProviderKind::Xai,
+            provider: ProviderKind::Cloud,
             auth_env: "XAI_API_KEY",
             base_url_env: "XAI_BASE_URL",
             default_base_url: openai_compat::DEFAULT_XAI_BASE_URL,
@@ -118,7 +116,7 @@ const MODEL_REGISTRY: &[(&str, ProviderMetadata)] = &[
     (
         "grok-2",
         ProviderMetadata {
-            provider: ProviderKind::Xai,
+            provider: ProviderKind::Cloud,
             auth_env: "XAI_API_KEY",
             base_url_env: "XAI_BASE_URL",
             default_base_url: openai_compat::DEFAULT_XAI_BASE_URL,
@@ -134,19 +132,15 @@ pub fn resolve_model_alias(model: &str) -> String {
         .iter()
         .find_map(|(alias, metadata)| {
             (*alias == lower).then_some(match metadata.provider {
-                ProviderKind::Anthropic => match *alias {
+                ProviderKind::Cloud => match *alias {
                     "opus" => "claude-opus-4-6",
                     "sonnet" => "claude-sonnet-4-6",
                     "haiku" => "claude-haiku-4-5-20251213",
-                    _ => trimmed,
-                },
-                ProviderKind::Xai => match *alias {
                     "grok" | "grok-3" => "grok-3",
                     "grok-mini" | "grok-3-mini" => "grok-3-mini",
                     "grok-2" => "grok-2",
                     _ => trimmed,
                 },
-                ProviderKind::OpenAi => trimmed,
                 ProviderKind::Local => match *alias {
                     "local" | "ollama" => "llama3.2",
                     _ => trimmed,
@@ -156,12 +150,13 @@ pub fn resolve_model_alias(model: &str) -> String {
         .map_or_else(|| trimmed.to_string(), ToOwned::to_owned)
 }
 
+#[allow(dead_code)]
 #[must_use]
 pub fn metadata_for_model(model: &str) -> Option<ProviderMetadata> {
     let canonical = resolve_model_alias(model);
     if canonical.starts_with("claude") {
         return Some(ProviderMetadata {
-            provider: ProviderKind::Anthropic,
+            provider: ProviderKind::Cloud,
             auth_env: "ANTHROPIC_API_KEY",
             base_url_env: "ANTHROPIC_BASE_URL",
             default_base_url: anthropic::DEFAULT_BASE_URL,
@@ -169,7 +164,7 @@ pub fn metadata_for_model(model: &str) -> Option<ProviderMetadata> {
     }
     if canonical.starts_with("grok") {
         return Some(ProviderMetadata {
-            provider: ProviderKind::Xai,
+            provider: ProviderKind::Cloud,
             auth_env: "XAI_API_KEY",
             base_url_env: "XAI_BASE_URL",
             default_base_url: openai_compat::DEFAULT_XAI_BASE_URL,
@@ -181,7 +176,7 @@ pub fn metadata_for_model(model: &str) -> Option<ProviderMetadata> {
     // order and misroutes to Anthropic if ANTHROPIC_API_KEY is present.
     if canonical.starts_with("openai/") || canonical.starts_with("gpt-") {
         return Some(ProviderMetadata {
-            provider: ProviderKind::OpenAi,
+            provider: ProviderKind::Cloud,
             auth_env: "OPENAI_API_KEY",
             base_url_env: "OPENAI_BASE_URL",
             default_base_url: openai_compat::DEFAULT_OPENAI_BASE_URL,
@@ -194,7 +189,7 @@ pub fn metadata_for_model(model: &str) -> Option<ProviderMetadata> {
     // shape — only the base URL and auth env var differ.
     if canonical.starts_with("qwen/") || canonical.starts_with("qwen-") {
         return Some(ProviderMetadata {
-            provider: ProviderKind::OpenAi,
+            provider: ProviderKind::Cloud,
             auth_env: "DASHSCOPE_API_KEY",
             base_url_env: "DASHSCOPE_BASE_URL",
             default_base_url: openai_compat::DEFAULT_DASHSCOPE_BASE_URL,
@@ -213,20 +208,18 @@ pub fn metadata_for_model(model: &str) -> Option<ProviderMetadata> {
 
 #[must_use]
 pub fn detect_provider_kind(model: &str) -> ProviderKind {
-    if let Some(metadata) = metadata_for_model(model) {
-        return metadata.provider;
+    let canonical = resolve_model_alias(model);
+    if canonical.starts_with("ollama/") || canonical.starts_with("local/") {
+        return ProviderKind::Local;
     }
     if ollama::local_provider_enabled() {
         return ProviderKind::Local;
     }
-    if anthropic::has_auth_from_env_or_saved().unwrap_or(false) {
-        return ProviderKind::Anthropic;
+    if canonical.starts_with("openai/") || canonical.starts_with("gpt-") {
+        return ProviderKind::Cloud;
     }
     if openai_compat::has_api_key("OPENAI_API_KEY") {
-        return ProviderKind::OpenAi;
-    }
-    if openai_compat::has_api_key("XAI_API_KEY") {
-        return ProviderKind::Xai;
+        return ProviderKind::Cloud;
     }
     ProviderKind::Local
 }
@@ -497,64 +490,31 @@ mod tests {
     }
 
     #[test]
-    fn detects_provider_from_model_name_first() {
-        assert_eq!(detect_provider_kind("grok"), ProviderKind::Xai);
-        assert_eq!(
-            detect_provider_kind("claude-sonnet-4-6"),
-            ProviderKind::Anthropic
-        );
+    fn detect_provider_kind_prefers_local_when_local_env_and_openai_key_both_set() {
+        let _lock = env_lock();
+        let _local_provider = EnvVarGuard::set("AGCLI_LOCAL_PROVIDER", Some("ollama"));
+        let _openai_key = EnvVarGuard::set("OPENAI_API_KEY", Some("sk-test"));
+
+        assert_eq!(detect_provider_kind("llama3.2"), ProviderKind::Local);
     }
 
     #[test]
-    fn openai_namespaced_model_routes_to_openai_not_anthropic() {
-        // Regression: "openai/gpt-4.1-mini" was misrouted to Anthropic when
-        // ANTHROPIC_API_KEY was set because metadata_for_model returned None
-        // and detect_provider_kind fell through to auth-sniffer order.
-        // The model prefix must win over env-var presence.
-        let kind = super::metadata_for_model("openai/gpt-4.1-mini")
-            .map(|m| m.provider)
-            .unwrap_or_else(|| detect_provider_kind("openai/gpt-4.1-mini"));
+    fn detect_provider_kind_routes_openai_prefixed_models_to_cloud() {
         assert_eq!(
-            kind,
-            ProviderKind::OpenAi,
-            "openai/ prefix must route to OpenAi regardless of ANTHROPIC_API_KEY"
+            detect_provider_kind("openai/gpt-4.1-mini"),
+            ProviderKind::Cloud
         );
-
-        // Also cover bare gpt- prefix
-        let kind2 = super::metadata_for_model("gpt-4o")
-            .map(|m| m.provider)
-            .unwrap_or_else(|| detect_provider_kind("gpt-4o"));
-        assert_eq!(kind2, ProviderKind::OpenAi);
+        assert_eq!(detect_provider_kind("gpt-4o-mini"), ProviderKind::Cloud);
     }
 
     #[test]
-    fn qwen_prefix_routes_to_dashscope_not_anthropic() {
-        // User request from Discord #clawcode-get-help: web3g wants to use
-        // Qwen 3.6 Plus via native Alibaba DashScope API (not OpenRouter,
-        // which has lower rate limits). metadata_for_model must route
-        // qwen/* and bare qwen-* to the OpenAi provider kind pointed at
-        // the DashScope compatible-mode endpoint, regardless of whether
-        // ANTHROPIC_API_KEY is present in the environment.
-        let meta = super::metadata_for_model("qwen/qwen-max")
-            .expect("qwen/ prefix must resolve to DashScope metadata");
-        assert_eq!(meta.provider, ProviderKind::OpenAi);
-        assert_eq!(meta.auth_env, "DASHSCOPE_API_KEY");
-        assert_eq!(meta.base_url_env, "DASHSCOPE_BASE_URL");
-        assert!(meta.default_base_url.contains("dashscope.aliyuncs.com"));
+    fn detect_provider_kind_defaults_to_local_without_cloud_credentials() {
+        let _lock = env_lock();
+        let _openai_key = EnvVarGuard::set("OPENAI_API_KEY", None);
+        let _local_provider = EnvVarGuard::set("AGCLI_LOCAL_PROVIDER", None);
+        let _ollama_host = EnvVarGuard::set("OLLAMA_HOST", None);
 
-        // Bare qwen- prefix also routes
-        let meta2 = super::metadata_for_model("qwen-plus")
-            .expect("qwen- prefix must resolve to DashScope metadata");
-        assert_eq!(meta2.provider, ProviderKind::OpenAi);
-        assert_eq!(meta2.auth_env, "DASHSCOPE_API_KEY");
-
-        // detect_provider_kind must agree even if ANTHROPIC_API_KEY is set
-        let kind = detect_provider_kind("qwen/qwen3-coder");
-        assert_eq!(
-            kind,
-            ProviderKind::OpenAi,
-            "qwen/ prefix must win over auth-sniffer order"
-        );
+        assert_eq!(detect_provider_kind("unknown-model"), ProviderKind::Local);
     }
 
     #[test]
