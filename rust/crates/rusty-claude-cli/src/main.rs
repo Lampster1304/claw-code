@@ -81,6 +81,7 @@ const INTERNAL_PROGRESS_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(3);
 const POST_TOOL_STALL_TIMEOUT: Duration = Duration::from_secs(10);
 const MODEL_WAIT_NOTICE_TIMEOUT: Duration = Duration::from_secs(10);
 const MODEL_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const REPL_PROMPT_LABEL: &str = "› Tu mensaje ";
 const PRIMARY_SESSION_EXTENSION: &str = "jsonl";
 const LEGACY_SESSION_EXTENSION: &str = "json";
 const LATEST_SESSION_REFERENCE: &str = "latest";
@@ -2917,6 +2918,10 @@ fn run_stale_base_preflight(flag_value: Option<&str>) {
     }
 }
 
+fn format_repl_input_boundary() -> String {
+    format!("\n{}\n", "─".repeat(56))
+}
+
 fn run_repl(
     model: String,
     allowed_tools: Option<AllowedToolSet>,
@@ -2937,13 +2942,17 @@ fn run_repl(
         hide_thinking,
     )?;
     cli.set_reasoning_effort(reasoning_effort);
-    let mut editor =
-        input::LineEditor::new("> ", cli.repl_completion_candidates().unwrap_or_default());
+    let mut editor = input::LineEditor::new(
+        REPL_PROMPT_LABEL,
+        cli.repl_completion_candidates().unwrap_or_default(),
+    );
     println!("{}", cli.startup_banner());
     println!("{}", format_connected_line(&cli.model));
 
     loop {
         editor.set_completions(cli.repl_completion_candidates().unwrap_or_default());
+        print!("{}", format_repl_input_boundary());
+        io::stdout().flush()?;
         match editor.read_line()? {
             input::ReadOutcome::Submit(input) => {
                 let trimmed = input.trim().to_string();
@@ -10987,6 +10996,18 @@ UU conflicted.rs",
         assert!(!rendered.contains("raw 119"));
         assert!(rendered.contains("full result preserved in session"));
         assert!(output.contains("raw 119"));
+    }
+
+    #[test]
+    fn repl_input_boundary_contains_divider_and_prompt_marker() {
+        let boundary = super::format_repl_input_boundary();
+        assert!(boundary.contains('─'));
+        assert!(boundary.ends_with('\n'));
+    }
+
+    #[test]
+    fn repl_prompt_label_is_human_readable() {
+        assert_eq!(super::REPL_PROMPT_LABEL, "› Tu mensaje ");
     }
 
     #[test]
