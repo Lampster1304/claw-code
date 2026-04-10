@@ -329,7 +329,7 @@ async fn provider_client_dispatches_cloud_requests_from_openai_env() {
 
     let client = ProviderClient::from_model("openai/gpt-4.1-mini")
         .expect("cloud provider client should be constructed");
-    assert!(matches!(client, ProviderClient::Cloud(_)));
+    assert!(matches!(client, ProviderClient::CloudOpenAi(_)));
 
     let response = client
         .send_message(&sample_request(false))

@@ -215,8 +215,8 @@ pub fn detect_provider_kind(model: &str) -> ProviderKind {
     if ollama::local_provider_enabled() {
         return ProviderKind::Local;
     }
-    if canonical.starts_with("openai/") || canonical.starts_with("gpt-") {
-        return ProviderKind::Cloud;
+    if let Some(metadata) = metadata_for_model(&canonical) {
+        return metadata.provider;
     }
     if openai_compat::has_api_key("OPENAI_API_KEY") {
         return ProviderKind::Cloud;

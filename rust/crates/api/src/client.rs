@@ -1,7 +1,7 @@
 use crate::error::ApiError;
-use crate::providers::ollama::{self, OllamaClient};
 use crate::prompt_cache::{PromptCache, PromptCacheRecord, PromptCacheStats};
 use crate::providers::anthropic::{self, AuthSource};
+use crate::providers::ollama::{self, OllamaClient};
 use crate::providers::openai_compat::{self, OpenAiCompatClient, OpenAiCompatConfig};
 use crate::providers::{self, ProviderKind};
 use crate::types::{MessageRequest, MessageResponse, StreamEvent};
@@ -10,7 +10,8 @@ use crate::types::{MessageRequest, MessageResponse, StreamEvent};
 #[derive(Debug, Clone)]
 pub enum ProviderClient {
     Local(OllamaClient),
-    Cloud(OpenAiCompatClient),
+    CloudAnthropic(anthropic::AnthropicClient),
+    CloudOpenAi(OpenAiCompatClient),
 }
 
 impl ProviderClient {
@@ -20,14 +21,37 @@ impl ProviderClient {
 
     pub fn from_model_with_anthropic_auth(
         model: &str,
-        _anthropic_auth: Option<AuthSource>,
+        anthropic_auth: Option<AuthSource>,
     ) -> Result<Self, ApiError> {
         let resolved_model = providers::resolve_model_alias(model);
         match providers::detect_provider_kind(&resolved_model) {
             ProviderKind::Local => Ok(Self::Local(OllamaClient::from_model(&resolved_model))),
-            ProviderKind::Cloud => Ok(Self::Cloud(OpenAiCompatClient::from_env(
-                OpenAiCompatConfig::openai(),
-            )?)),
+            ProviderKind::Cloud => {
+                if resolved_model.starts_with("claude") {
+                    let auth = match anthropic_auth {
+                        Some(auth) => auth,
+                        None => AuthSource::from_env_or_saved()?,
+                    };
+                    Ok(Self::CloudAnthropic(
+                        anthropic::AnthropicClient::from_auth(auth)
+                            .with_base_url(anthropic::read_base_url()),
+                    ))
+                } else if resolved_model.starts_with("grok") {
+                    Ok(Self::CloudOpenAi(OpenAiCompatClient::from_env(
+                        OpenAiCompatConfig::xai(),
+                    )?))
+                } else if resolved_model.starts_with("qwen/")
+                    || resolved_model.starts_with("qwen-")
+                {
+                    Ok(Self::CloudOpenAi(OpenAiCompatClient::from_env(
+                        OpenAiCompatConfig::dashscope(),
+                    )?))
+                } else {
+                    Ok(Self::CloudOpenAi(OpenAiCompatClient::from_env(
+                        OpenAiCompatConfig::openai(),
+                    )?))
+                }
+            }
         }
     }
 
@@ -35,7 +59,7 @@ impl ProviderClient {
     pub const fn provider_kind(&self) -> ProviderKind {
         match self {
             Self::Local(_) => ProviderKind::Local,
-            Self::Cloud(_) => ProviderKind::Cloud,
+            Self::CloudAnthropic(_) | Self::CloudOpenAi(_) => ProviderKind::Cloud,
         }
     }
 
@@ -43,7 +67,10 @@ impl ProviderClient {
     pub fn with_prompt_cache(self, prompt_cache: PromptCache) -> Self {
         match self {
             Self::Local(client) => Self::Local(client.with_prompt_cache(prompt_cache)),
-            Self::Cloud(client) => Self::Cloud(client),
+            Self::CloudAnthropic(client) => {
+                Self::CloudAnthropic(client.with_prompt_cache(prompt_cache))
+            }
+            Self::CloudOpenAi(client) => Self::CloudOpenAi(client),
         }
     }
 
@@ -51,7 +78,8 @@ impl ProviderClient {
     pub fn prompt_cache_stats(&self) -> Option<PromptCacheStats> {
         match self {
             Self::Local(client) => client.prompt_cache_stats(),
-            Self::Cloud(_) => None,
+            Self::CloudAnthropic(client) => client.prompt_cache_stats(),
+            Self::CloudOpenAi(_) => None,
         }
     }
 
@@ -59,7 +87,8 @@ impl ProviderClient {
     pub fn take_last_prompt_cache_record(&self) -> Option<PromptCacheRecord> {
         match self {
             Self::Local(client) => client.take_last_prompt_cache_record(),
-            Self::Cloud(_) => None,
+            Self::CloudAnthropic(client) => client.take_last_prompt_cache_record(),
+            Self::CloudOpenAi(_) => None,
         }
     }
 
@@ -69,7 +98,8 @@ impl ProviderClient {
     ) -> Result<MessageResponse, ApiError> {
         match self {
             Self::Local(client) => client.send_message(request).await,
-            Self::Cloud(client) => client.send_message(request).await,
+            Self::CloudAnthropic(client) => client.send_message(request).await,
+            Self::CloudOpenAi(client) => client.send_message(request).await,
         }
     }
 
@@ -79,7 +109,11 @@ impl ProviderClient {
     ) -> Result<MessageStream, ApiError> {
         match self {
             Self::Local(client) => client.stream_message(request).await.map(MessageStream::Local),
-            Self::Cloud(client) => client
+            Self::CloudAnthropic(client) => client
+                .stream_message(request)
+                .await
+                .map(MessageStream::Anthropic),
+            Self::CloudOpenAi(client) => client
                 .stream_message(request)
                 .await
                 .map(MessageStream::OpenAiCompat),
@@ -90,6 +124,7 @@ impl ProviderClient {
 #[derive(Debug)]
 pub enum MessageStream {
     Local(ollama::MessageStream),
+    Anthropic(anthropic::MessageStream),
     OpenAiCompat(openai_compat::MessageStream),
 }
 
@@ -98,6 +133,7 @@ impl MessageStream {
     pub fn request_id(&self) -> Option<&str> {
         match self {
             Self::Local(stream) => stream.request_id(),
+            Self::Anthropic(stream) => stream.request_id(),
             Self::OpenAiCompat(stream) => stream.request_id(),
         }
     }
@@ -105,6 +141,7 @@ impl MessageStream {
     pub async fn next_event(&mut self) -> Result<Option<StreamEvent>, ApiError> {
         match self {
             Self::Local(stream) => stream.next_event().await,
+            Self::Anthropic(stream) => stream.next_event().await,
             Self::OpenAiCompat(stream) => stream.next_event().await,
         }
     }
@@ -115,7 +152,7 @@ pub use anthropic::{
 };
 #[must_use]
 pub fn read_base_url() -> String {
-    openai_compat::read_base_url(OpenAiCompatConfig::openai())
+    anthropic::read_base_url()
 }
 
 #[must_use]
@@ -130,9 +167,6 @@ mod tests {
     use super::ProviderClient;
     use crate::providers::{detect_provider_kind, resolve_model_alias, ProviderKind};
 
-    /// Serializes every test in this module that mutates process-wide
-    /// environment variables so concurrent test threads cannot observe
-    /// each other's partially-applied state.
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
@@ -167,10 +201,6 @@ mod tests {
         assert_eq!(client.provider_kind(), ProviderKind::Cloud);
     }
 
-    /// Snapshot-restore guard for a single environment variable. Mirrors
-    /// the pattern used in `providers/mod.rs` tests: captures the original
-    /// value on construction, applies the override, and restores on drop so
-    /// tests leave the process env untouched even when they panic.
     struct EnvVarGuard {
         key: &'static str,
         original: Option<std::ffi::OsString>,
@@ -210,7 +240,7 @@ mod tests {
         );
 
         match client.unwrap() {
-            ProviderClient::Cloud(openai_client) => {
+            ProviderClient::CloudOpenAi(openai_client) => {
                 assert!(
                     openai_client.base_url().contains("api.openai.com"),
                     "gpt-4o-mini should route to OpenAI base URL, got: {}",
@@ -218,7 +248,7 @@ mod tests {
                 );
             }
             other => panic!(
-                "Expected ProviderClient::Cloud for gpt-4o-mini, got: {:?}",
+                "Expected ProviderClient::CloudOpenAi for gpt-4o-mini, got: {:?}",
                 other
             ),
         }
