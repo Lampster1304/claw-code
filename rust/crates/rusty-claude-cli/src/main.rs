@@ -183,8 +183,10 @@ fn merge_prompt_with_stdin(prompt: &str, stdin_content: Option<&str>) -> String 
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().skip(1).collect();
-    let hide_thinking = args.iter().any(|arg| arg == "--hide-thinking");
-    match parse_args(&args)? {
+    let repl_hide_thinking = args.iter().any(|arg| arg == "--hide-thinking");
+    let action = parse_args(&args)?;
+    let hide_thinking = resolve_hide_thinking_for_action(&action, repl_hide_thinking);
+    match action {
         CliAction::DumpManifests { output_format } => dump_manifests(output_format)?,
         CliAction::BootstrapPlan { output_format } => print_bootstrap_plan(output_format)?,
         CliAction::Agents {
@@ -279,6 +281,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         CliAction::Help { output_format } => print_help(output_format)?,
     }
     Ok(())
+}
+
+fn resolve_hide_thinking_for_action(action: &CliAction, repl_hide_thinking: bool) -> bool {
+    match action {
+        CliAction::Prompt { .. } => true,
+        CliAction::Repl { .. } => repl_hide_thinking,
+        _ => repl_hide_thinking,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -11019,6 +11029,34 @@ UU conflicted.rs",
         assert!(!super::should_render_repl_input_boundary(true, false));
         assert!(!super::should_render_repl_input_boundary(false, true));
         assert!(!super::should_render_repl_input_boundary(false, false));
+    }
+
+    #[test]
+    fn hide_thinking_mode_resolution_scopes_prompt_and_repl() {
+        let prompt = CliAction::Prompt {
+            prompt: "hi".to_string(),
+            model: DEFAULT_MODEL.to_string(),
+            output_format: CliOutputFormat::Text,
+            allowed_tools: None,
+            permission_mode: PermissionMode::WorkspaceWrite,
+            compact: false,
+            base_commit: None,
+            reasoning_effort: None,
+            allow_broad_cwd: false,
+        };
+        let repl = CliAction::Repl {
+            model: DEFAULT_MODEL.to_string(),
+            allowed_tools: None,
+            permission_mode: PermissionMode::WorkspaceWrite,
+            base_commit: None,
+            reasoning_effort: None,
+            allow_broad_cwd: false,
+        };
+
+        assert!(super::resolve_hide_thinking_for_action(&prompt, false));
+        assert!(super::resolve_hide_thinking_for_action(&prompt, true));
+        assert!(!super::resolve_hide_thinking_for_action(&repl, false));
+        assert!(super::resolve_hide_thinking_for_action(&repl, true));
     }
 
     #[test]
