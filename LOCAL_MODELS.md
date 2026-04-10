@@ -1,37 +1,46 @@
 # AGCLI Local Models
 
-AGCLI is being oriented toward local-first model execution.
+AGCLI follows a **two-mode provider architecture**:
 
-## First target
+1. **Local mode** (Ollama/local server)
+2. **Cloud mode** (OpenAI-compatible API gateway)
 
-- `Ollama`
+Routing is automatic with **local-first autodetection**.
 
-The new local provider lives in the Rust `api` crate and speaks to Ollama's native `/api/chat` endpoint.
-
-## Environment
+## Local mode setup
 
 ```bash
 export AGCLI_LOCAL_PROVIDER=ollama
 export AGCLI_LOCAL_BASE_URL=http://127.0.0.1:11434
 ```
 
-`OLLAMA_HOST` is also supported as a fallback for the base URL.
+`OLLAMA_HOST` is also supported as a local base-URL signal.
 
-## Model selection
-
-You can pass the model directly, for example:
+## Local model selection
 
 ```bash
 agcli --model ollama/qwen2.5-coder:7b
 agcli --model ollama/llama3.2
 ```
 
-If the `ollama/` prefix is omitted, AGCLI can still route locally when:
+If the `ollama/` prefix is omitted, AGCLI can still route locally when local env signals are present.
 
-- `AGCLI_LOCAL_PROVIDER=ollama` is set, or
-- `OLLAMA_HOST` is present in the environment
+## Cloud gateway fallback
 
-## Current limitation
+Cloud mode uses OpenAI-compatible credentials:
 
-This provider currently focuses on local chat/streaming transport.
-Tool-calling parity with cloud-native providers still needs more work at the agent loop level.
+```bash
+export OPENAI_API_KEY="your-key"
+# optional:
+export OPENAI_BASE_URL="https://your-gateway.example/v1"
+```
+
+This cloud path is also how you target compatible gateways, including Copilot-compatible and Gemini-compatible endpoints.
+
+## Autodetection order
+
+1. Explicit local model prefix (`ollama/`, `local/`)
+2. Local env (`AGCLI_LOCAL_PROVIDER`, `OLLAMA_HOST`)
+3. Explicit cloud model prefix (`openai/`, `gpt-`)
+4. Cloud env (`OPENAI_API_KEY`)
+5. Fallback to local mode

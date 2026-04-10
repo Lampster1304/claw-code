@@ -14,39 +14,19 @@
   <a href="https://discord.gg/5TUQKqFWd">UltraWorkers Discord</a>
 </p>
 
-<p align="center">
-  <a href="https://star-history.com/#ultraworkers/claw-code&Date">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=ultraworkers/claw-code&type=Date&theme=dark" />
-      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=ultraworkers/claw-code&type=Date" />
-      <img alt="Star history for ultraworkers/claw-code" src="https://api.star-history.com/svg?repos=ultraworkers/claw-code&type=Date" width="600" />
-    </picture>
-  </a>
-</p>
-
-<p align="center">
-  <img src="assets/claw-hero.jpeg" alt="Claw Code" width="300" />
-</p>
-
 AGCLI is a local-first Rust agent CLI for coding workflows.
-This fork is being adapted to run against local models, starting with Ollama.
+
+AGCLI supports exactly two provider modes:
+
+1. **Local mode** (Ollama or another local server)
+2. **Cloud mode** (OpenAI-compatible API gateway)
+
+Routing is automatic with **local-first autodetection**.
 
 > [!IMPORTANT]
-> Start with [`LOCAL_MODELS.md`](./LOCAL_MODELS.md) and [`USAGE.md`](./USAGE.md). The current direction is local-model support first, with Ollama as the first runtime target.
-
-## Current repository shape
-
-- **`rust/`** — canonical Rust workspace and the `claw` CLI binary
-- **`USAGE.md`** — task-oriented usage guide for the current product surface
-- **`PARITY.md`** — Rust-port parity status and migration notes
-- **`ROADMAP.md`** — active roadmap and cleanup backlog
-- **`PHILOSOPHY.md`** — project intent and system-design framing
-- **`src/` + `tests/`** — companion Python/reference workspace and audit helpers; not the primary runtime surface
+> Start with [`LOCAL_MODELS.md`](./LOCAL_MODELS.md) and [`USAGE.md`](./USAGE.md) for provider setup and routing behavior.
 
 ## Quick start
-
-> [!NOTE]
-> **`cargo install clawcode` will not work** — this package is not published on crates.io. Build from source as shown below.
 
 ```bash
 # 1. Clone and build
@@ -54,8 +34,14 @@ git clone https://github.com/ultraworkers/claw-code
 cd claw-code/rust
 cargo build --workspace
 
-# 2. Set your API key (Anthropic API key — not a Claude subscription)
-export ANTHROPIC_API_KEY="sk-ant-..."
+# 2a. Local mode (Ollama)
+export AGCLI_LOCAL_PROVIDER=ollama
+export AGCLI_LOCAL_BASE_URL=http://127.0.0.1:11434
+
+# 2b. Cloud mode (OpenAI-compatible gateway)
+export OPENAI_API_KEY="your-key"
+# Optional for compatible gateways (OpenRouter, Copilot-compatible, Gemini-compatible, etc.)
+# export OPENAI_BASE_URL="https://your-gateway.example/v1"
 
 # 3. Verify everything is wired correctly
 ./target/debug/agcli doctor
@@ -63,12 +49,6 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 # 4. Run a prompt
 ./target/debug/agcli prompt "say hello"
 ```
-
-> [!NOTE]
-> **Windows (PowerShell):** the binary is `agcli.exe`, not `claw`. Use `.\target\debug\agcli.exe` or run `cargo run -- prompt "say hello"` to skip the path lookup.
-
-> [!NOTE]
-> **Auth:** agcli requires an **API key** (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.) — Claude subscription login is not a supported auth path.
 
 Run the workspace test suite:
 
@@ -79,24 +59,14 @@ cargo test --workspace
 
 ## Documentation map
 
-- [`USAGE.md`](./USAGE.md) — quick commands, auth, sessions, config, parity harness
+- [`USAGE.md`](./USAGE.md) — commands, auth, sessions, config, and provider modes
+- [`LOCAL_MODELS.md`](./LOCAL_MODELS.md) — local-mode setup and local-first routing order
 - [`rust/README.md`](./rust/README.md) — crate map, CLI surface, features, workspace layout
 - [`PARITY.md`](./PARITY.md) — parity status for the Rust port
-- [`rust/MOCK_PARITY_HARNESS.md`](./rust/MOCK_PARITY_HARNESS.md) — deterministic mock-service harness details
 - [`ROADMAP.md`](./ROADMAP.md) — active roadmap and open cleanup work
 - [`PHILOSOPHY.md`](./PHILOSOPHY.md) — why the project exists and how it is operated
-
-## Ecosystem
-
-Claw Code is built in the open alongside the broader UltraWorkers toolchain:
-
-- [clawhip](https://github.com/Yeachan-Heo/clawhip)
-- [oh-my-openagent](https://github.com/code-yeongyu/oh-my-openagent)
-- [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode)
-- [oh-my-codex](https://github.com/Yeachan-Heo/oh-my-codex)
-- [UltraWorkers Discord](https://discord.gg/5TUQKqFWd)
 
 ## Ownership / affiliation disclaimer
 
 - This repository does **not** claim ownership of the original Claude Code source material.
-- This repository is **not affiliated with, endorsed by, or maintained by Anthropic**.
+- This repository is **not affiliated with, endorsed by, or maintained by upstream model/API vendors**.
