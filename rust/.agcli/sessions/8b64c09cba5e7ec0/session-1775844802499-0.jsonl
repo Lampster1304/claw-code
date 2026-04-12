@@ -1,0 +1,7 @@
+{"created_at_ms":1775844802499,"session_id":"session-1775844802499-0","type":"session_meta","updated_at_ms":1775844854627,"version":1}
+{"text":"hola","timestamp_ms":1775844816171,"type":"prompt_history"}
+{"text":"como te llamas?","timestamp_ms":1775844842828,"type":"prompt_history"}
+{"message":{"blocks":[{"text":"hola","type":"text"}],"role":"user"},"type":"message"}
+{"message":{"blocks":[{"text":"Hola! ¿En qué puedo ayudarte con tu proyecto en Rust? Puedo ayudarte a verificar el código, corregir errores, o explorar la estructura del repositorio. ¡Dime cómo puedo asistirte! 😊","type":"text"}],"role":"assistant","usage":{"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"input_tokens":1500,"output_tokens":199}},"type":"message"}
+{"message":{"blocks":[{"text":"como te llamas?","type":"text"}],"role":"user"},"type":"message"}
+{"message":{"blocks":[{"text":"Hola! Me llamo AGCLI y soy un agente interactivo que te ayuda con tareas de ingeniería de software, especialmente en proyectos Rust. ¿En qué puedo ayudarte hoy? 😊","type":"text"}],"role":"assistant","usage":{"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"input_tokens":1566,"output_tokens":279}},"type":"message"}

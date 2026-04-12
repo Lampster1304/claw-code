@@ -387,7 +387,8 @@ mod tests {
         let root = temp_dir();
         fs::create_dir_all(&root).expect("create root");
         fs::write(root.join("CLAUDE.md"), "custom guidance\n").expect("write existing claude md");
-        fs::write(root.join(".gitignore"), ".agcli/settings.local.json\n").expect("write gitignore");
+        fs::write(root.join(".gitignore"), ".agcli/settings.local.json\n")
+            .expect("write gitignore");
 
         let first = initialize_repo(&root).expect("first init should succeed");
         assert!(first

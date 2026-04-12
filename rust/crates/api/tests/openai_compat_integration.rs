@@ -347,7 +347,6 @@ async fn provider_client_dispatches_cloud_requests_from_openai_env() {
     );
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CapturedRequest {
     path: String,

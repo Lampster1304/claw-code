@@ -2,27 +2,49 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::io::{self, IsTerminal, Write};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 use rustyline::completion::{Completer, Pair};
 use rustyline::error::ReadlineError;
 use rustyline::highlight::{CmdKind, Highlighter};
-use rustyline::hint::Hinter;
+use rustyline::hint::{Hint, Hinter};
 use rustyline::history::DefaultHistory;
 use rustyline::validate::Validator;
 use rustyline::{
-    Cmd, CompletionType, Config, Context, EditMode, Editor, Helper, KeyCode, KeyEvent, Modifiers,
+    Cmd, CompletionType, ConditionalEventHandler, Config, Context, EditMode, Editor, Event,
+    EventContext, EventHandler, Helper, KeyCode, KeyEvent, Modifiers,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReadOutcome {
     Submit(String),
+    CyclePermissionMode,
     Cancel,
     Exit,
+}
+
+struct ShiftTabModeCycleHandler {
+    cycle_requested: Arc<AtomicBool>,
+}
+
+impl ConditionalEventHandler for ShiftTabModeCycleHandler {
+    fn handle(&self, _evt: &Event, _n: usize, _positive: bool, ctx: &EventContext) -> Option<Cmd> {
+        if should_cycle_permission_mode_on_shift_tab(ctx.line()) {
+            self.cycle_requested.store(true, Ordering::Relaxed);
+            Some(Cmd::Interrupt)
+        } else {
+            Some(Cmd::CompleteBackward)
+        }
+    }
 }
 
 struct SlashCommandHelper {
     completions: Vec<String>,
     current_line: RefCell<String>,
+    footer_hint: Option<String>,
 }
 
 impl SlashCommandHelper {
@@ -30,6 +52,7 @@ impl SlashCommandHelper {
         Self {
             completions: normalize_completions(completions),
             current_line: RefCell::new(String::new()),
+            footer_hint: None,
         }
     }
 
@@ -49,6 +72,23 @@ impl SlashCommandHelper {
 
     fn set_completions(&mut self, completions: Vec<String>) {
         self.completions = normalize_completions(completions);
+    }
+
+    fn set_footer_hint(&mut self, hint: Option<String>) {
+        self.footer_hint = hint.filter(|value| !value.is_empty());
+    }
+}
+
+#[derive(Clone)]
+struct DisplayOnlyHint(String);
+
+impl Hint for DisplayOnlyHint {
+    fn display(&self) -> &str {
+        self.0.as_str()
+    }
+
+    fn completion(&self) -> Option<&str> {
+        None
     }
 }
 
@@ -80,7 +120,16 @@ impl Completer for SlashCommandHelper {
 }
 
 impl Hinter for SlashCommandHelper {
-    type Hint = String;
+    type Hint = DisplayOnlyHint;
+
+    fn hint(&self, line: &str, pos: usize, _ctx: &Context<'_>) -> Option<Self::Hint> {
+        if pos < line.len() {
+            return None;
+        }
+        self.footer_hint
+            .as_ref()
+            .map(|hint| DisplayOnlyHint(hint.clone()))
+    }
 }
 
 impl Highlighter for SlashCommandHelper {
@@ -101,6 +150,7 @@ impl Helper for SlashCommandHelper {}
 pub struct LineEditor {
     prompt: String,
     editor: Editor<SlashCommandHelper, DefaultHistory>,
+    cycle_requested: Arc<AtomicBool>,
 }
 
 impl LineEditor {
@@ -113,12 +163,20 @@ impl LineEditor {
         let mut editor = Editor::<SlashCommandHelper, DefaultHistory>::with_config(config)
             .expect("rustyline editor should initialize");
         editor.set_helper(Some(SlashCommandHelper::new(completions)));
+        let cycle_requested = Arc::new(AtomicBool::new(false));
         editor.bind_sequence(KeyEvent(KeyCode::Char('J'), Modifiers::CTRL), Cmd::Newline);
         editor.bind_sequence(KeyEvent(KeyCode::Enter, Modifiers::SHIFT), Cmd::Newline);
+        editor.bind_sequence(
+            KeyEvent(KeyCode::BackTab, Modifiers::NONE),
+            EventHandler::Conditional(Box::new(ShiftTabModeCycleHandler {
+                cycle_requested: Arc::clone(&cycle_requested),
+            })),
+        );
 
         Self {
             prompt: prompt.into(),
             editor,
+            cycle_requested,
         }
     }
 
@@ -137,10 +195,17 @@ impl LineEditor {
         }
     }
 
+    pub fn set_footer_hint(&mut self, hint: Option<String>) {
+        if let Some(helper) = self.editor.helper_mut() {
+            helper.set_footer_hint(hint);
+        }
+    }
+
     pub fn read_line(&mut self) -> io::Result<ReadOutcome> {
         if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
             return self.read_line_fallback();
         }
+        self.consume_permission_mode_cycle_request();
 
         if let Some(helper) = self.editor.helper_mut() {
             helper.reset_current_line();
@@ -149,6 +214,10 @@ impl LineEditor {
         match self.editor.readline(&self.prompt) {
             Ok(line) => Ok(ReadOutcome::Submit(line)),
             Err(ReadlineError::Interrupted) => {
+                if self.consume_permission_mode_cycle_request() {
+                    self.finish_interrupted_read()?;
+                    return Ok(ReadOutcome::CyclePermissionMode);
+                }
                 let has_input = !self.current_line().is_empty();
                 self.finish_interrupted_read()?;
                 if has_input {
@@ -177,6 +246,10 @@ impl LineEditor {
         }
         let mut stdout = io::stdout();
         writeln!(stdout)
+    }
+
+    fn consume_permission_mode_cycle_request(&self) -> bool {
+        self.cycle_requested.swap(false, Ordering::Relaxed)
     }
 
     fn read_line_fallback(&self) -> io::Result<ReadOutcome> {
@@ -219,11 +292,19 @@ fn normalize_completions(completions: Vec<String>) -> Vec<String> {
         .collect()
 }
 
+fn should_cycle_permission_mode_on_shift_tab(line: &str) -> bool {
+    line.trim().is_empty()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{slash_command_prefix, LineEditor, SlashCommandHelper};
+    use super::{
+        should_cycle_permission_mode_on_shift_tab, slash_command_prefix, LineEditor,
+        SlashCommandHelper,
+    };
     use rustyline::completion::Completer;
     use rustyline::highlight::Highlighter;
+    use rustyline::hint::{Hint as _, Hinter as _};
     use rustyline::history::{DefaultHistory, History};
     use rustyline::Context;
 
@@ -326,5 +407,39 @@ mod tests {
 
         let helper = editor.editor.helper().expect("helper should exist");
         assert_eq!(helper.completions, vec!["/model opus".to_string()]);
+    }
+
+    #[test]
+    fn footer_hint_displays_without_inserting_completion_text() {
+        let mut editor = LineEditor::new("> ", vec!["/help".to_string()]);
+        editor.set_footer_hint(Some("\n────\n  helper text".to_string()));
+        let helper = editor.editor.helper().expect("helper should exist");
+        let history = DefaultHistory::new();
+        let ctx = Context::new(&history);
+
+        let hint = helper
+            .hint("/help", 5, &ctx)
+            .expect("footer hint should be present");
+
+        assert_eq!(hint.display(), "\n────\n  helper text");
+        assert_eq!(hint.completion(), None);
+    }
+
+    #[test]
+    fn footer_hint_hides_when_cursor_is_not_at_line_end() {
+        let mut editor = LineEditor::new("> ", vec!["/help".to_string()]);
+        editor.set_footer_hint(Some("\n────\n  helper text".to_string()));
+        let helper = editor.editor.helper().expect("helper should exist");
+        let history = DefaultHistory::new();
+        let ctx = Context::new(&history);
+
+        assert!(helper.hint("/help", 2, &ctx).is_none());
+    }
+
+    #[test]
+    fn shift_tab_cycles_mode_only_on_empty_input() {
+        assert!(should_cycle_permission_mode_on_shift_tab(""));
+        assert!(should_cycle_permission_mode_on_shift_tab("   "));
+        assert!(!should_cycle_permission_mode_on_shift_tab("/status"));
     }
 }

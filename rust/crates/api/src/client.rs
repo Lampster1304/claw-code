@@ -40,8 +40,7 @@ impl ProviderClient {
                     Ok(Self::CloudOpenAi(OpenAiCompatClient::from_env(
                         OpenAiCompatConfig::xai(),
                     )?))
-                } else if resolved_model.starts_with("qwen/")
-                    || resolved_model.starts_with("qwen-")
+                } else if resolved_model.starts_with("qwen/") || resolved_model.starts_with("qwen-")
                 {
                     Ok(Self::CloudOpenAi(OpenAiCompatClient::from_env(
                         OpenAiCompatConfig::dashscope(),
@@ -108,7 +107,10 @@ impl ProviderClient {
         request: &MessageRequest,
     ) -> Result<MessageStream, ApiError> {
         match self {
-            Self::Local(client) => client.stream_message(request).await.map(MessageStream::Local),
+            Self::Local(client) => client
+                .stream_message(request)
+                .await
+                .map(MessageStream::Local),
             Self::CloudAnthropic(client) => client
                 .stream_message(request)
                 .await

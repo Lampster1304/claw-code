@@ -499,8 +499,8 @@ async fn provider_client_dispatches_cloud_requests() {
     std::env::set_var("OPENAI_API_KEY", "openai-test-key");
     std::env::set_var("OPENAI_BASE_URL", server.base_url());
 
-    let client = ProviderClient::from_model("openai/gpt-4.1-mini")
-        .expect("cloud provider should construct");
+    let client =
+        ProviderClient::from_model("openai/gpt-4.1-mini").expect("cloud provider should construct");
     let response = client
         .send_message(&sample_request(false))
         .await
@@ -516,7 +516,6 @@ async fn provider_client_dispatches_cloud_requests() {
         Some("Bearer openai-test-key")
     );
 }
-
 
 #[tokio::test]
 async fn surfaces_retry_exhaustion_for_persistent_retryable_errors() {

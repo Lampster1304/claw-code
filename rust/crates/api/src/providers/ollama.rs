@@ -97,9 +97,8 @@ impl OllamaClient {
         if let Some(err) = check_ollama_body_error(&body) {
             return Err(err);
         }
-        let payload = serde_json::from_str::<OllamaChatResponse>(&body).map_err(|error| {
-            ApiError::json_deserialize("Ollama", &request.model, &body, error)
-        })?;
+        let payload = serde_json::from_str::<OllamaChatResponse>(&body)
+            .map_err(|error| ApiError::json_deserialize("Ollama", &request.model, &body, error))?;
         let normalized = normalize_response(payload, request.model.clone());
         if let Some(prompt_cache) = &self.prompt_cache {
             let record = prompt_cache.record_response(&request, &normalized);
@@ -299,7 +298,9 @@ impl MessageStream {
                     delta: ContentBlockDelta::InputJsonDelta { partial_json },
                 }));
             self.pending
-                .push_back(StreamEvent::ContentBlockStop(ContentBlockStopEvent { index: idx }));
+                .push_back(StreamEvent::ContentBlockStop(ContentBlockStopEvent {
+                    index: idx,
+                }));
         }
 
         if payload.done {
@@ -435,11 +436,7 @@ struct OllamaErrorResponse {
 
 // ---------- request builders ----------
 
-fn build_ollama_request(
-    request: &MessageRequest,
-    model: &str,
-    stream: bool,
-) -> OllamaChatRequest {
+fn build_ollama_request(request: &MessageRequest, model: &str, stream: bool) -> OllamaChatRequest {
     let mut messages: Vec<OllamaChatMessage> = Vec::new();
     if let Some(system) = request
         .system
@@ -458,9 +455,10 @@ fn build_ollama_request(
     }
 
     let options = build_ollama_options(request);
-    let tools = request.tools.as_ref().map(|list| {
-        list.iter().map(build_ollama_tool).collect::<Vec<_>>()
-    });
+    let tools = request
+        .tools
+        .as_ref()
+        .map(|list| list.iter().map(build_ollama_tool).collect::<Vec<_>>());
 
     OllamaChatRequest {
         model: model.to_string(),
@@ -518,11 +516,7 @@ fn convert_single_message(message: &InputMessage, out: &mut Vec<OllamaChatMessag
             InputContentBlock::Text { text } => {
                 text_parts.push(text.clone());
             }
-            InputContentBlock::ToolUse {
-                id: _,
-                name,
-                input,
-            } => {
+            InputContentBlock::ToolUse { id: _, name, input } => {
                 tool_calls.push(OllamaOutgoingToolCall {
                     function: OllamaOutgoingToolCallFunction {
                         name: name.clone(),

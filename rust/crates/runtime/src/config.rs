@@ -852,10 +852,14 @@ fn parse_permission_mode_label(
     mode: &str,
     context: &str,
 ) -> Result<ResolvedPermissionMode, ConfigError> {
-    match mode {
-        "default" | "plan" | "read-only" => Ok(ResolvedPermissionMode::ReadOnly),
-        "acceptEdits" | "auto" | "workspace-write" => Ok(ResolvedPermissionMode::WorkspaceWrite),
-        "dontAsk" | "danger-full-access" => Ok(ResolvedPermissionMode::DangerFullAccess),
+    let normalized = mode.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "default" | "plan" | "plan-mode" | "plan mode" | "read-only" => {
+            Ok(ResolvedPermissionMode::ReadOnly)
+        }
+        "acceptedits" | "auto" | "auto-accepts-edits" | "auto accepts edits"
+        | "autoacceptsedits" | "workspace-write" => Ok(ResolvedPermissionMode::WorkspaceWrite),
+        "dontask" | "danger-full-access" => Ok(ResolvedPermissionMode::DangerFullAccess),
         other => Err(ConfigError::Parse(format!(
             "{context}: unsupported permission mode {other}"
         ))),
@@ -1907,7 +1911,25 @@ mod tests {
             ResolvedPermissionMode::ReadOnly
         );
         assert_eq!(
+            parse_permission_mode_label("plan-mode", "test").expect("plan-mode should resolve"),
+            ResolvedPermissionMode::ReadOnly
+        );
+        assert_eq!(
+            parse_permission_mode_label("plan mode", "test").expect("plan mode should resolve"),
+            ResolvedPermissionMode::ReadOnly
+        );
+        assert_eq!(
             parse_permission_mode_label("acceptEdits", "test").expect("acceptEdits should resolve"),
+            ResolvedPermissionMode::WorkspaceWrite
+        );
+        assert_eq!(
+            parse_permission_mode_label("auto-accepts-edits", "test")
+                .expect("auto-accepts-edits should resolve"),
+            ResolvedPermissionMode::WorkspaceWrite
+        );
+        assert_eq!(
+            parse_permission_mode_label("auto accepts edits", "test")
+                .expect("auto accepts edits should resolve"),
             ResolvedPermissionMode::WorkspaceWrite
         );
         assert_eq!(

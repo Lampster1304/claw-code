@@ -100,15 +100,15 @@ Use this cloud mode for compatible gateways, including Copilot-compatible and Ge
 ```bash
 cd rust
 ./target/debug/agcli --model ollama/qwen2.5-coder:7b prompt "review this diff"
-./target/debug/agcli --permission-mode read-only prompt "summarize Cargo.toml"
-./target/debug/agcli --permission-mode workspace-write prompt "update README.md"
+./target/debug/agcli --permission-mode plan-mode prompt "summarize Cargo.toml"
+./target/debug/agcli --permission-mode auto-accepts-edits prompt "update README.md"
 ./target/debug/agcli --allowedTools read,glob "inspect the runtime crate"
 ```
 
 Supported permission modes:
 
-- `read-only`
-- `workspace-write`
+- `plan-mode` (aliases: `plan`, `read-only`)
+- `auto-accepts-edits` (aliases: `acceptEdits`, `auto`, `workspace-write`)
 - `danger-full-access`
 
 ## Session management

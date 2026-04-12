@@ -147,7 +147,10 @@ fn resumed_config_command_loads_settings_files_end_to_end() {
             "/config",
             "model",
         ],
-        &[("AGCLI_CONFIG_HOME", config_home.to_str().expect("utf8 path"))],
+        &[(
+            "AGCLI_CONFIG_HOME",
+            config_home.to_str().expect("utf8 path"),
+        )],
     );
 
     // then

@@ -96,14 +96,14 @@ const SLASH_COMMAND_SPECS: &[SlashCommandSpec] = &[
         name: "permissions",
         aliases: &[],
         summary: "Show or switch the active permission mode",
-        argument_hint: Some("[read-only|workspace-write|danger-full-access]"),
+        argument_hint: Some("[plan-mode|auto-accepts-edits|danger-full-access]"),
         resume_supported: false,
     },
     SlashCommandSpec {
         name: "clear",
         aliases: &[],
         summary: "Start a fresh local session",
-        argument_hint: Some("[--confirm]"),
+        argument_hint: None,
         resume_supported: true,
     },
     SlashCommandSpec {
@@ -1465,28 +1465,33 @@ fn require_remainder(
 }
 
 fn parse_permissions_mode(args: &[&str]) -> Result<Option<String>, SlashCommandParseError> {
-    let mode = optional_single_arg(
-        "permissions",
-        args,
-        "[read-only|workspace-write|danger-full-access]",
-    )?;
+    const PERMISSIONS_USAGE: &str = "[plan-mode|auto-accepts-edits|danger-full-access]";
+    let mode = optional_single_arg("permissions", args, PERMISSIONS_USAGE)?;
     if let Some(mode) = mode {
-        if matches!(
-            mode.as_str(),
-            "read-only" | "workspace-write" | "danger-full-access"
-        ) {
-            return Ok(Some(mode));
+        if let Some(normalized) = normalize_permissions_mode(&mode) {
+            return Ok(Some(normalized.to_string()));
         }
         return Err(command_error(
             &format!(
-                "Unsupported /permissions mode '{mode}'. Use read-only, workspace-write, or danger-full-access."
+                "Unsupported /permissions mode '{mode}'. Use plan-mode, auto-accepts-edits, or danger-full-access."
             ),
             "permissions",
-            "/permissions [read-only|workspace-write|danger-full-access]",
+            &format!("/permissions {PERMISSIONS_USAGE}"),
         ));
     }
 
     Ok(None)
+}
+
+fn normalize_permissions_mode(mode: &str) -> Option<&'static str> {
+    let normalized = mode.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "plan" | "plan-mode" | "plan mode" | "read-only" => Some("read-only"),
+        "accept-edits" | "acceptedits" | "auto" | "auto-accepts-edits" | "auto accepts edits"
+        | "autoacceptsedits" | "workspace-write" => Some("workspace-write"),
+        "dontask" | "danger-full-access" => Some("danger-full-access"),
+        _ => None,
+    }
 }
 
 fn parse_clear_args(args: &[&str]) -> Result<bool, SlashCommandParseError> {
@@ -1494,11 +1499,11 @@ fn parse_clear_args(args: &[&str]) -> Result<bool, SlashCommandParseError> {
         [] => Ok(false),
         ["--confirm"] => Ok(true),
         [unexpected] => Err(command_error(
-            &format!("Unsupported /clear argument '{unexpected}'. Use /clear or /clear --confirm."),
+            &format!("Unsupported /clear argument '{unexpected}'. Use /clear."),
             "clear",
-            "/clear [--confirm]",
+            "/clear",
         )),
-        _ => Err(usage_error("clear", "[--confirm]")),
+        _ => Err(usage_error("clear", "")),
     }
 }
 
@@ -4218,6 +4223,12 @@ mod tests {
             }))
         );
         assert_eq!(
+            SlashCommand::parse("/permissions plan-mode"),
+            Ok(Some(SlashCommand::Permissions {
+                mode: Some("read-only".to_string()),
+            }))
+        );
+        assert_eq!(
             SlashCommand::parse("/clear"),
             Ok(Some(SlashCommand::Clear { confirm: false }))
         );
@@ -4387,10 +4398,10 @@ mod tests {
 
         // then
         assert!(error.contains(
-            "Unsupported /permissions mode 'admin'. Use read-only, workspace-write, or danger-full-access."
+            "Unsupported /permissions mode 'admin'. Use plan-mode, auto-accepts-edits, or danger-full-access."
         ));
         assert!(error.contains(
-            "  Usage            /permissions [read-only|workspace-write|danger-full-access]"
+            "  Usage            /permissions [plan-mode|auto-accepts-edits|danger-full-access]"
         ));
     }
 
@@ -4494,8 +4505,9 @@ mod tests {
         assert!(help.contains("/teleport <symbol-or-path>"));
         assert!(help.contains("/debug-tool-call"));
         assert!(help.contains("/model [model]"));
-        assert!(help.contains("/permissions [read-only|workspace-write|danger-full-access]"));
-        assert!(help.contains("/clear [--confirm]"));
+        assert!(help.contains("/permissions [plan-mode|auto-accepts-edits|danger-full-access]"));
+        assert!(help.contains("/clear"));
+        assert!(!help.contains("/clear [--confirm]"));
         assert!(help.contains("/cost"));
         assert!(help.contains("/resume <session-path>"));
         assert!(help.contains("/config [env|hooks|model|plugins]"));
@@ -5008,8 +5020,9 @@ mod tests {
             super::handle_agents_slash_command(Some("help"), &cwd).expect("agents help");
         assert!(agents_help.contains("Usage            /agents [list|help]"));
         assert!(agents_help.contains("Direct CLI       agcli agents"));
-        assert!(agents_help
-            .contains("Sources          .agcli/agents, ~/.agcli/agents, $AGCLI_CONFIG_HOME/agents"));
+        assert!(agents_help.contains(
+            "Sources          .agcli/agents, ~/.agcli/agents, $AGCLI_CONFIG_HOME/agents"
+        ));
 
         let agents_unexpected =
             super::handle_agents_slash_command(Some("show planner"), &cwd).expect("agents usage");
@@ -5021,7 +5034,9 @@ mod tests {
             .contains("Usage            /skills [list|install <path>|help|<skill> [args]]"));
         assert!(skills_help.contains("Alias            /skill"));
         assert!(skills_help.contains("Invoke           /skills help overview -> $help overview"));
-        assert!(skills_help.contains("Install root     $AGCLI_CONFIG_HOME/skills or ~/.agcli/skills"));
+        assert!(
+            skills_help.contains("Install root     $AGCLI_CONFIG_HOME/skills or ~/.agcli/skills")
+        );
         assert!(skills_help.contains(".omc/skills"));
         assert!(skills_help.contains(".agents/skills"));
         assert!(skills_help.contains("~/.claude/skills/omc-learned"));

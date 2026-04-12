@@ -30,6 +30,7 @@ use api::{
     ProviderKind, StreamEvent as ApiStreamEvent, ToolChoice, ToolDefinition,
     ToolResultContentBlock,
 };
+use crossterm::terminal;
 
 use commands::{
     classify_skills_slash_command, handle_agents_slash_command, handle_agents_slash_command_json,
@@ -81,7 +82,23 @@ const INTERNAL_PROGRESS_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(3);
 const POST_TOOL_STALL_TIMEOUT: Duration = Duration::from_secs(10);
 const MODEL_WAIT_NOTICE_TIMEOUT: Duration = Duration::from_secs(10);
 const MODEL_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(250);
-const REPL_PROMPT_LABEL: &str = "› Tu mensaje ";
+const STARTUP_BANNER_DEFAULT_COLUMNS: usize = 120;
+const REPL_INPUT_BOUNDARY_DEFAULT_WIDTH: usize = 56;
+const REPL_INPUT_BOUNDARY_SIDE_PADDING: usize = 2;
+const REPL_INPUT_HINT_LINE: &str = "▸▸ accept edits on (shift+tab to cycle) · esc to interrupt";
+const REPL_INPUT_HINT_PREFIX: &str = "  ";
+const REPL_PROMPT_LABEL: &str = "> ";
+const STARTUP_ASCII_LOGO: &str = r#"   █████████                 █████████  █████       █████      / \__
+  ███░░░░░███               ███░░░░░███░░███       ░░███     (    @\___
+ ░███    ░███   ███████    ███     ░░░  ░███        ░███      /         O
+ ░███████████  ███░░███   ░███          ░███        ░███     /   (_____/
+ ░███░░░░░███ ░███ ░███   ░███          ░███        ░███     /_____/   U
+ ░███    ░███ ░███ ░███   ░░███     ███ ░███      █ ░███
+ █████   █████░░███████    ░░█████████  ███████████ █████
+░░░░░   ░░░░░  ░░░░░███     ░░░░░░░░░  ░░░░░░░░░░░ ░░░░░
+               ███ ░███
+              ░░██████
+               ░░░░░░"#;
 const PRIMARY_SESSION_EXTENSION: &str = "jsonl";
 const LEGACY_SESSION_EXTENSION: &str = "json";
 const LATEST_SESSION_REFERENCE: &str = "latest";
@@ -1057,7 +1074,7 @@ fn parse_permission_mode_arg(value: &str) -> Result<PermissionMode, String> {
     normalize_permission_mode(value)
         .ok_or_else(|| {
             format!(
-                "unsupported permission mode '{value}'. Use read-only, workspace-write, or danger-full-access."
+                "unsupported permission mode '{value}'. Use plan-mode, auto-accepts-edits, or danger-full-access."
             )
         })
         .map(permission_mode_from_label)
@@ -2585,16 +2602,7 @@ fn run_resume_command(
                 json: None,
             })
         }
-        SlashCommand::Clear { confirm } => {
-            if !confirm {
-                return Ok(ResumeCommandOutcome {
-                    session: session.clone(),
-                    message: Some(
-                        "clear: confirmation required; rerun with /clear --confirm".to_string(),
-                    ),
-                    json: None,
-                });
-            }
+        SlashCommand::Clear { .. } => {
             let backup_path = write_session_clear_backup(session, session_path)?;
             let previous_session_id = session.session_id.clone();
             let cleared = Session::new();
@@ -2928,12 +2936,73 @@ fn run_stale_base_preflight(flag_value: Option<&str>) {
     }
 }
 
-fn format_repl_input_boundary() -> String {
-    format!("\n{}\n", "─".repeat(56))
+fn repl_input_boundary_width(columns: Option<usize>) -> usize {
+    let minimum_boundary_width =
+        REPL_INPUT_HINT_PREFIX.chars().count() + REPL_INPUT_HINT_LINE.chars().count();
+    columns
+        .filter(|columns| *columns > REPL_INPUT_BOUNDARY_SIDE_PADDING)
+        .map(|columns| columns.saturating_sub(REPL_INPUT_BOUNDARY_SIDE_PADDING))
+        .unwrap_or(REPL_INPUT_BOUNDARY_DEFAULT_WIDTH.max(minimum_boundary_width))
+        .max(REPL_PROMPT_LABEL.chars().count().saturating_add(1))
+}
+
+fn repl_terminal_columns() -> Option<usize> {
+    terminal::size()
+        .ok()
+        .map(|(columns, _)| usize::from(columns))
+        .filter(|columns| *columns > 0)
+        .or_else(|| {
+            env::var("COLUMNS")
+                .ok()
+                .and_then(|value| value.parse::<usize>().ok())
+                .filter(|columns| *columns > 0)
+        })
+}
+
+fn repl_input_boundary_hint_line(divider_width: usize) -> String {
+    let hint_capacity = divider_width.saturating_sub(REPL_INPUT_HINT_PREFIX.chars().count());
+    if REPL_INPUT_HINT_LINE.chars().count() <= hint_capacity {
+        REPL_INPUT_HINT_LINE.to_string()
+    } else if hint_capacity == 0 {
+        String::new()
+    } else if hint_capacity == 1 {
+        "…".to_string()
+    } else {
+        truncate_for_summary(REPL_INPUT_HINT_LINE, hint_capacity.saturating_sub(1))
+    }
+}
+
+fn format_repl_input_boundary_top_with_width(divider_width: usize) -> String {
+    let divider = "─".repeat(divider_width);
+    format!("\n{divider}\n")
+}
+
+fn format_repl_input_boundary_footer_hint_with_width(divider_width: usize) -> String {
+    let divider = "─".repeat(divider_width);
+    let hint_line = repl_input_boundary_hint_line(divider_width);
+    format!("\n{divider}\n{REPL_INPUT_HINT_PREFIX}{hint_line}")
+}
+
+fn format_repl_input_boundary_with_width(divider_width: usize) -> String {
+    let top = format_repl_input_boundary_top_with_width(divider_width);
+    let footer = format_repl_input_boundary_footer_hint_with_width(divider_width);
+    format!("{top}{REPL_PROMPT_LABEL}{footer}")
+}
+
+fn format_repl_input_boundary() -> (String, String) {
+    let divider_width = repl_input_boundary_width(repl_terminal_columns());
+    (
+        format_repl_input_boundary_top_with_width(divider_width),
+        format_repl_input_boundary_footer_hint_with_width(divider_width),
+    )
 }
 
 fn should_render_repl_input_boundary(stdin_is_tty: bool, stdout_is_tty: bool) -> bool {
     stdin_is_tty && stdout_is_tty
+}
+
+fn repl_startup_lines(startup_banner: &str, _model: &str) -> Vec<String> {
+    vec![startup_banner.to_string()]
 }
 
 fn run_repl(
@@ -2962,14 +3031,20 @@ fn run_repl(
     );
     let render_input_boundary =
         should_render_repl_input_boundary(io::stdin().is_terminal(), io::stdout().is_terminal());
-    println!("{}", cli.startup_banner());
-    println!("{}", format_connected_line(&cli.model));
+    let startup_banner = cli.startup_banner();
+    for line in repl_startup_lines(&startup_banner, &cli.model) {
+        println!("{line}");
+    }
 
     loop {
         editor.set_completions(cli.repl_completion_candidates().unwrap_or_default());
         if render_input_boundary {
-            print!("{}", format_repl_input_boundary());
+            let (top, footer_hint) = format_repl_input_boundary();
+            editor.set_footer_hint(Some(footer_hint));
+            print!("{top}");
             io::stdout().flush()?;
+        } else {
+            editor.set_footer_hint(None);
         }
         match editor.read_line()? {
             input::ReadOutcome::Submit(input) => {
@@ -3017,6 +3092,16 @@ fn run_repl(
                 editor.push_history(input);
                 cli.record_prompt_history(&trimmed);
                 cli.run_turn(&trimmed)?;
+            }
+            input::ReadOutcome::CyclePermissionMode => {
+                let next_mode = next_permission_mode_for_shift_tab(cli.permission_mode);
+                let next_mode_label = match next_mode {
+                    PermissionMode::ReadOnly => "plan-mode",
+                    PermissionMode::WorkspaceWrite => "auto-accepts-edits",
+                    PermissionMode::DangerFullAccess => "danger-full-access",
+                    PermissionMode::Prompt | PermissionMode::Allow => "plan-mode",
+                };
+                cli.set_permissions(Some(next_mode_label.to_string()))?;
             }
             input::ReadOutcome::Cancel => {}
             input::ReadOutcome::Exit => {
@@ -3575,6 +3660,14 @@ impl LiveCli {
         }
     }
 
+    fn startup_banner_max_columns() -> usize {
+        env::var("COLUMNS")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|columns| *columns > 0)
+            .unwrap_or(STARTUP_BANNER_DEFAULT_COLUMNS)
+    }
+
     fn startup_banner(&self) -> String {
         let cwd = env::current_dir().map_or_else(
             |_| "<unknown>".to_string(),
@@ -3593,29 +3686,58 @@ impl LiveCli {
             |_| self.session.path.display().to_string(),
             |path| path.display().to_string(),
         );
+        let metadata_lines = vec![
+            format!("Model            {}", self.model),
+            format!("Permissions      {}", self.permission_mode.as_str()),
+            format!("Branch           {git_branch}"),
+            format!("Workspace        {workspace}"),
+            format!("Directory        {cwd}"),
+            format!("Session          {}", self.session.id),
+            format!("Auto-save        {session_path}"),
+        ];
+        let logo_lines: Vec<&str> = STARTUP_ASCII_LOGO.lines().collect();
+        let logo_width = logo_lines
+            .iter()
+            .map(|line| line.chars().count())
+            .max()
+            .unwrap_or(0);
+        let metadata_anchor = logo_lines
+            .iter()
+            .position(|line| line.contains("/ \\__"))
+            .unwrap_or(0);
+        let banner_max_columns = Self::startup_banner_max_columns();
+        let total_lines = logo_lines.len().max(metadata_anchor + metadata_lines.len());
+        let mut logo_with_metadata_lines = Vec::with_capacity(total_lines);
+        for index in 0..total_lines {
+            let left = logo_lines.get(index).copied().unwrap_or_default();
+            if let Some(metadata) = index
+                .checked_sub(metadata_anchor)
+                .and_then(|offset| metadata_lines.get(offset))
+            {
+                let padding = logo_width.saturating_sub(left.chars().count()) + 6;
+                let available =
+                    banner_max_columns.saturating_sub(left.chars().count().saturating_add(padding));
+                if available == 0 {
+                    logo_with_metadata_lines.push(left.to_string());
+                } else {
+                    let metadata = if metadata.chars().count() > available {
+                        truncate_for_summary(metadata, available.saturating_sub(1))
+                    } else {
+                        metadata.clone()
+                    };
+                    logo_with_metadata_lines
+                        .push(format!("{left}{}{metadata}", " ".repeat(padding)));
+                }
+            } else {
+                logo_with_metadata_lines.push(left.to_string());
+            }
+        }
+        let logo_with_metadata = logo_with_metadata_lines.join("\n");
         format!(
-            "\x1b[38;5;39m\
- █████╗  ██████╗  ██████╗██╗     ██╗\n\
-██╔══██╗██╔════╝ ██╔════╝██║     ██║\n\
-███████║██║  ███╗██║     ██║     ██║\n\
-██╔══██║██║   ██║██║     ██║     ██║\n\
-██║  ██║╚██████╔╝╚██████╗███████╗██║\n\
-╚═╝  ╚═╝ ╚═════╝  ╚═════╝╚══════╝╚═╝\x1b[0m \x1b[2mlocal-first agent CLI\x1b[0m\n\n\
-  \x1b[2mModel\x1b[0m            {}\n\
-  \x1b[2mPermissions\x1b[0m      {}\n\
-  \x1b[2mBranch\x1b[0m           {}\n\
-  \x1b[2mWorkspace\x1b[0m        {}\n\
-  \x1b[2mDirectory\x1b[0m        {}\n\
-  \x1b[2mSession\x1b[0m          {}\n\
-  \x1b[2mAuto-save\x1b[0m        {}\n\n\
-  Type \x1b[1m/help\x1b[0m for commands · \x1b[1m/status\x1b[0m for live context · \x1b[2m/resume latest\x1b[0m jumps back to the newest session · \x1b[1m/diff\x1b[0m then \x1b[1m/commit\x1b[0m to ship · \x1b[2mTab\x1b[0m for workflow completions · \x1b[2mShift+Enter\x1b[0m for newline",
-            self.model,
-            self.permission_mode.as_str(),
-            git_branch,
-            workspace,
-            cwd,
-            self.session.id,
-            session_path,
+            "\x1b[38;5;39m{}\x1b[0m\n\
+  \x1b[2mlocal-first agent CLI\x1b[0m\n\n\
+  Type \x1b[1m/help\x1b[0m for comands",
+            logo_with_metadata,
         )
     }
 
@@ -3824,7 +3946,7 @@ impl LiveCli {
             }
             SlashCommand::Model { model } => self.set_model(model)?,
             SlashCommand::Permissions { mode } => self.set_permissions(mode)?,
-            SlashCommand::Clear { confirm } => self.clear_session(confirm)?,
+            SlashCommand::Clear { .. } => self.clear_session()?,
             SlashCommand::Cost => {
                 self.print_cost();
                 false
@@ -4095,7 +4217,7 @@ impl LiveCli {
 
         let normalized = normalize_permission_mode(&mode).ok_or_else(|| {
             format!(
-                "unsupported permission mode '{mode}'. Use read-only, workspace-write, or danger-full-access."
+                "unsupported permission mode '{mode}'. Use plan-mode, auto-accepts-edits, or danger-full-access."
             )
         })?;
 
@@ -4126,15 +4248,7 @@ impl LiveCli {
         Ok(true)
     }
 
-    fn clear_session(&mut self, confirm: bool) -> Result<bool, Box<dyn std::error::Error>> {
-        if !confirm {
-            println!(
-                "clear: confirmation required; run /clear --confirm to start a fresh session."
-            );
-            return Ok(false);
-        }
-
-        let previous_session = self.session.clone();
+    fn clear_session(&mut self) -> Result<bool, Box<dyn std::error::Error>> {
         let session_state = Session::new();
         self.session = create_managed_session_handle(&session_state.session_id)?;
         let runtime = build_runtime(
@@ -4149,15 +4263,10 @@ impl LiveCli {
             None,
         )?;
         self.replace_runtime(runtime)?;
-        println!(
-            "Session cleared\n  Mode             fresh session\n  Previous session {}\n  Resume previous  /resume {}\n  Preserved model  {}\n  Permission mode  {}\n  New session      {}\n  Session file     {}",
-            previous_session.id,
-            previous_session.id,
-            self.model,
-            self.permission_mode.as_str(),
-            self.session.id,
-            self.session.path.display(),
-        );
+        if io::stdout().is_terminal() {
+            print!("\x1b[2J\x1b[H");
+            io::stdout().flush()?;
+        }
         Ok(true)
     }
 
@@ -4888,6 +4997,7 @@ fn render_repl_help() -> String {
         "  Up/Down              Navigate prompt history".to_string(),
         "  Ctrl-R               Reverse-search prompt history".to_string(),
         "  Tab                  Complete commands, modes, and recent sessions".to_string(),
+        "  Shift+Tab            Cycle permission mode".to_string(),
         "  Ctrl-C               Clear input (or exit on empty prompt)".to_string(),
         "  Shift+Enter/Ctrl+J   Insert a newline".to_string(),
         "  Auto-save            .agcli/sessions/<session-id>.jsonl".to_string(),
@@ -5401,11 +5511,23 @@ fn init_json_value(message: &str) -> serde_json::Value {
 }
 
 fn normalize_permission_mode(mode: &str) -> Option<&'static str> {
-    match mode.trim() {
-        "read-only" => Some("read-only"),
-        "workspace-write" => Some("workspace-write"),
-        "danger-full-access" => Some("danger-full-access"),
+    let normalized = mode.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "plan" | "plan-mode" | "plan mode" | "read-only" => Some("read-only"),
+        "accept-edits" | "acceptedits" | "auto" | "auto-accepts-edits" | "auto accepts edits"
+        | "autoacceptsedits" | "workspace-write" => Some("workspace-write"),
+        "dontask" | "danger-full-access" => Some("danger-full-access"),
         _ => None,
+    }
+}
+
+fn next_permission_mode_for_shift_tab(current_mode: PermissionMode) -> PermissionMode {
+    match current_mode {
+        PermissionMode::ReadOnly => PermissionMode::WorkspaceWrite,
+        PermissionMode::WorkspaceWrite => PermissionMode::DangerFullAccess,
+        PermissionMode::DangerFullAccess | PermissionMode::Prompt | PermissionMode::Allow => {
+            PermissionMode::ReadOnly
+        }
     }
 }
 
@@ -6884,11 +7006,8 @@ impl AnthropicRuntimeClient {
                             ));
                         }
 
-                        if should_emit_wait_notice(
-                            elapsed,
-                            saw_visible_output,
-                            wait_notice_emitted,
-                        ) {
+                        if should_emit_wait_notice(elapsed, saw_visible_output, wait_notice_emitted)
+                        {
                             render_waiting_for_model_notice(out)?;
                             wait_notice_emitted = true;
                         }
@@ -6966,11 +7085,7 @@ impl AnthropicRuntimeClient {
                     }
                     ContentBlockDelta::ThinkingDelta { thinking } => {
                         if self.show_thinking {
-                            render_thinking_delta(
-                                out,
-                                &thinking,
-                                &mut block_has_thinking_summary,
-                            )?;
+                            render_thinking_delta(out, &thinking, &mut block_has_thinking_summary)?;
                             saw_visible_output = true;
                         } else if !block_has_thinking_summary {
                             render_thinking_block_summary(out, None, false)?;
@@ -7152,7 +7267,7 @@ fn format_context_window_blocked_error(session_id: &str, error: &api::ApiError) 
     lines.push(format!(
         "  Resume compact   agcli --resume {session_id} /compact"
     ));
-    lines.push("  Fresh session    /clear --confirm".to_string());
+    lines.push("  Fresh session    /clear".to_string());
     lines.push(
         "  Reduce scope     remove large pasted context/files or ask for a smaller slice"
             .to_string(),
@@ -7300,7 +7415,6 @@ fn slash_command_completion_candidates_with_sessions(
 
     for candidate in [
         "/bughunter ",
-        "/clear --confirm",
         "/config ",
         "/config env",
         "/config hooks",
@@ -7316,6 +7430,8 @@ fn slash_command_completion_candidates_with_sessions(
         "/model sonnet",
         "/model haiku",
         "/permissions ",
+        "/permissions plan-mode",
+        "/permissions auto-accepts-edits",
         "/permissions read-only",
         "/permissions workspace-write",
         "/permissions danger-full-access",
@@ -8179,7 +8295,10 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     writeln!(out, "  agcli agents")?;
     writeln!(out, "  agcli mcp")?;
     writeln!(out, "  agcli skills")?;
-    writeln!(out, "  agcli system-prompt [--cwd PATH] [--date YYYY-MM-DD]")?;
+    writeln!(
+        out,
+        "  agcli system-prompt [--cwd PATH] [--date YYYY-MM-DD]"
+    )?;
     writeln!(out, "  agcli login")?;
     writeln!(out, "  agcli logout")?;
     writeln!(out, "  agcli init")?;
@@ -8211,7 +8330,7 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     )?;
     writeln!(
         out,
-        "  --permission-mode MODE     Set read-only, workspace-write, or danger-full-access"
+        "  --permission-mode MODE     Set plan-mode, auto-accepts-edits, or danger-full-access"
     )?;
     writeln!(
         out,
@@ -8296,8 +8415,7 @@ fn print_help(output_format: CliOutputFormat) -> Result<(), Box<dyn std::error::
 #[cfg(test)]
 mod tests {
     use super::{
-        build_runtime_plugin_state_with_loader, build_runtime_with_plugin_state,
-        check_auth_health,
+        build_runtime_plugin_state_with_loader, build_runtime_with_plugin_state, check_auth_health,
         collect_session_prompt_history, create_managed_session_handle, describe_tool_progress,
         filter_tool_specs, format_bughunter_report, format_commit_preflight_report,
         format_commit_skipped_report, format_compact_report, format_connected_line,
@@ -8314,8 +8432,7 @@ mod tests {
         render_prompt_history_report, render_repl_help, render_resume_usage,
         render_session_markdown, resolve_model_alias, resolve_model_alias_with_config,
         resolve_repl_model, resolve_session_reference, response_to_events,
-        resume_supported_slash_commands, run_resume_command, short_tool_id,
-        run_login, run_logout,
+        resume_supported_slash_commands, run_login, run_logout, run_resume_command, short_tool_id,
         slash_command_completion_candidates_with_sessions, status_context,
         summarize_tool_payload_for_markdown, validate_no_args, write_mcp_server_fixture, CliAction,
         CliOutputFormat, CliToolExecutor, GitWorkspaceSummary, InternalPromptProgressEvent,
@@ -8442,10 +8559,7 @@ mod tests {
             rendered.contains("Resume compact   agcli --resume session-issue-32 /compact"),
             "{rendered}"
         );
-        assert!(
-            rendered.contains("Fresh session    /clear --confirm"),
-            "{rendered}"
-        );
+        assert!(rendered.contains("Fresh session    /clear"), "{rendered}");
         assert!(rendered.contains("Reduce scope"), "{rendered}");
         assert!(rendered.contains("Retry            rerun"), "{rendered}");
     }
@@ -8476,10 +8590,7 @@ mod tests {
             "{rendered}"
         );
         assert!(rendered.contains("Compact          /compact"), "{rendered}");
-        assert!(
-            rendered.contains("Fresh session    /clear --confirm"),
-            "{rendered}"
-        );
+        assert!(rendered.contains("Fresh session    /clear"), "{rendered}");
     }
 
     #[test]
@@ -9053,6 +9164,33 @@ mod tests {
                 model: DEFAULT_MODEL.to_string(),
                 allowed_tools: None,
                 permission_mode: PermissionMode::ReadOnly,
+                base_commit: None,
+                reasoning_effort: None,
+                allow_broad_cwd: false,
+            }
+        );
+    }
+
+    #[test]
+    fn parses_permission_mode_alias_flags() {
+        assert_eq!(
+            parse_args(&["--permission-mode=plan-mode".to_string()]).expect("args should parse"),
+            CliAction::Repl {
+                model: DEFAULT_MODEL.to_string(),
+                allowed_tools: None,
+                permission_mode: PermissionMode::ReadOnly,
+                base_commit: None,
+                reasoning_effort: None,
+                allow_broad_cwd: false,
+            }
+        );
+        assert_eq!(
+            parse_args(&["--permission-mode=auto-accepts-edits".to_string()])
+                .expect("args should parse"),
+            CliAction::Repl {
+                model: DEFAULT_MODEL.to_string(),
+                allowed_tools: None,
+                permission_mode: PermissionMode::WorkspaceWrite,
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
@@ -9953,8 +10091,8 @@ mod tests {
         assert!(help.contains("/status"));
         assert!(help.contains("/sandbox"));
         assert!(help.contains("/model [model]"));
-        assert!(help.contains("/permissions [read-only|workspace-write|danger-full-access]"));
-        assert!(help.contains("/clear [--confirm]"));
+        assert!(help.contains("/permissions [plan-mode|auto-accepts-edits|danger-full-access]"));
+        assert!(help.contains("/clear"));
         assert!(help.contains("/cost"));
         assert!(help.contains("/resume <session-path>"));
         assert!(help.contains("/config [env|hooks|model|plugins]"));
@@ -9988,6 +10126,10 @@ mod tests {
 
         assert!(completions.contains(&"/model claude-sonnet-4-6".to_string()));
         assert!(completions.contains(&"/permissions workspace-write".to_string()));
+        assert!(completions.contains(&"/permissions plan-mode".to_string()));
+        assert!(completions.contains(&"/permissions auto-accepts-edits".to_string()));
+        assert!(completions.contains(&"/clear".to_string()));
+        assert!(!completions.contains(&"/clear --confirm".to_string()));
         assert!(completions.contains(&"/session list".to_string()));
         assert!(completions.contains(&"/session switch session-current".to_string()));
         assert!(completions.contains(&"/resume session-old".to_string()));
@@ -9996,7 +10138,7 @@ mod tests {
     }
 
     #[test]
-    fn startup_banner_mentions_workflow_completions() {
+    fn startup_banner_only_keeps_help_hint() {
         let _guard = env_lock();
         // Inject dummy credentials so LiveCli can construct without real Anthropic key
         std::env::set_var("ANTHROPIC_API_KEY", "test-dummy-key-for-banner-test");
@@ -10015,11 +10157,69 @@ mod tests {
             .startup_banner()
         });
 
-        assert!(banner.contains("Tab"));
-        assert!(banner.contains("workflow completions"));
+        assert!(banner.contains("Type \u{1b}[1m/help\u{1b}[0m for comands"));
+        assert!(!banner.contains("/status"));
+        assert!(!banner.contains("workflow completions"));
+        assert!(!banner.contains("Shift+Enter"));
+        assert!(!banner.contains("/diff"));
 
         fs::remove_dir_all(root).expect("cleanup temp dir");
         std::env::remove_var("ANTHROPIC_API_KEY");
+    }
+
+    #[test]
+    fn repl_startup_lines_only_print_banner() {
+        let lines = super::repl_startup_lines("banner", "openai/gpt-4.1-mini");
+        assert_eq!(lines, vec!["banner".to_string()]);
+    }
+
+    #[test]
+    fn startup_banner_uses_new_ascii_logo() {
+        let _guard = env_lock();
+        std::env::set_var("ANTHROPIC_API_KEY", "test-dummy-key-for-banner-test");
+        let original_columns = std::env::var("COLUMNS").ok();
+        std::env::set_var("COLUMNS", "120");
+        let root = temp_dir();
+        fs::create_dir_all(&root).expect("root dir");
+
+        let banner = with_current_dir(&root, || {
+            LiveCli::new(
+                "claude-sonnet-4-6".to_string(),
+                true,
+                None,
+                PermissionMode::DangerFullAccess,
+                false,
+            )
+            .expect("cli should initialize")
+            .startup_banner()
+        });
+
+        assert!(
+            banner.contains("█████████                 █████████  █████       █████"),
+            "{banner}"
+        );
+        assert!(banner.contains("█████       █████      / \\__"), "{banner}");
+        assert!(banner.contains("(    @\\___"), "{banner}");
+        let dog_head_line = banner
+            .lines()
+            .find(|line| line.contains("/ \\__"))
+            .expect("dog head line should exist");
+        assert!(dog_head_line.contains("Model"), "{banner}");
+        assert!(dog_head_line.contains("claude-sonnet-4-6"), "{banner}");
+        let auto_save_line = banner
+            .lines()
+            .find(|line| line.contains("Auto-save"))
+            .expect("auto-save line should exist");
+        assert!(auto_save_line.contains("…"), "{banner}");
+        assert!(auto_save_line.chars().count() <= 120, "{banner}");
+
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+        std::env::remove_var("ANTHROPIC_API_KEY");
+        if let Some(columns) = original_columns {
+            std::env::set_var("COLUMNS", columns);
+        } else {
+            std::env::remove_var("COLUMNS");
+        }
     }
 
     #[test]
@@ -10044,12 +10244,10 @@ mod tests {
 
         assert_eq!(check.name, "Auth");
         assert!(check.summary.contains("cloud"));
-        assert!(
-            check
-                .details
-                .iter()
-                .any(|detail| detail.contains("openai_api_key=present"))
-        );
+        assert!(check
+            .details
+            .iter()
+            .any(|detail| detail.contains("openai_api_key=present")));
 
         std::env::remove_var("OPENAI_API_KEY");
         std::env::remove_var("AGCLI_MODEL");
@@ -10529,6 +10727,32 @@ UU conflicted.rs",
     }
 
     #[test]
+    fn resume_clear_command_without_confirm_resets_session() {
+        let _guard = env_lock();
+        let root = temp_dir();
+        fs::create_dir_all(&root).expect("root dir");
+        let session_path = root.join("session.json");
+        let session = Session::new();
+        let previous_session_id = session.session_id.clone();
+        session
+            .save_to_path(&session_path)
+            .expect("session should save");
+
+        let outcome = run_resume_command(
+            &session_path,
+            &session,
+            &SlashCommand::Clear { confirm: false },
+        )
+        .expect("resume clear should work without explicit confirmation");
+
+        assert_ne!(outcome.session.session_id, previous_session_id);
+        let message = outcome.message.expect("clear message should exist");
+        assert!(message.contains("Session cleared"), "{message}");
+
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    #[test]
     fn status_context_reads_real_workspace_metadata() {
         let context = status_context(None).expect("status context should load");
         assert!(context.cwd.is_absolute());
@@ -10539,8 +10763,18 @@ UU conflicted.rs",
     #[test]
     fn normalizes_supported_permission_modes() {
         assert_eq!(normalize_permission_mode("read-only"), Some("read-only"));
+        assert_eq!(normalize_permission_mode("plan-mode"), Some("read-only"));
+        assert_eq!(normalize_permission_mode("plan mode"), Some("read-only"));
         assert_eq!(
             normalize_permission_mode("workspace-write"),
+            Some("workspace-write")
+        );
+        assert_eq!(
+            normalize_permission_mode("auto-accepts-edits"),
+            Some("workspace-write")
+        );
+        assert_eq!(
+            normalize_permission_mode("auto accepts edits"),
             Some("workspace-write")
         );
         assert_eq!(
@@ -10759,10 +10993,27 @@ UU conflicted.rs",
         let help = render_repl_help();
         assert!(help.contains("Up/Down"));
         assert!(help.contains("Tab"));
+        assert!(help.contains("Shift+Tab"));
         assert!(help.contains("Shift+Enter/Ctrl+J"));
         assert!(help.contains("Ctrl-R"));
         assert!(help.contains("Reverse-search prompt history"));
         assert!(help.contains("/history [count]"));
+    }
+
+    #[test]
+    fn shift_tab_permission_cycle_uses_requested_order() {
+        assert_eq!(
+            super::next_permission_mode_for_shift_tab(PermissionMode::ReadOnly),
+            PermissionMode::WorkspaceWrite
+        );
+        assert_eq!(
+            super::next_permission_mode_for_shift_tab(PermissionMode::WorkspaceWrite),
+            PermissionMode::DangerFullAccess
+        );
+        assert_eq!(
+            super::next_permission_mode_for_shift_tab(PermissionMode::DangerFullAccess),
+            PermissionMode::ReadOnly
+        );
     }
 
     #[test]
@@ -11027,10 +11278,52 @@ UU conflicted.rs",
     }
 
     #[test]
-    fn repl_input_boundary_contains_divider_and_prompt_marker() {
-        let boundary = super::format_repl_input_boundary();
-        assert!(boundary.contains('─'));
-        assert!(boundary.ends_with('\n'));
+    fn repl_input_boundary_matches_double_bar_style() {
+        let divider_width = super::repl_input_boundary_width(Some(100));
+        let boundary = super::format_repl_input_boundary_with_width(divider_width);
+        let divider_lines = boundary
+            .lines()
+            .filter(|line| !line.is_empty() && line.chars().all(|ch| ch == '─'))
+            .count();
+        assert_eq!(divider_lines, 2, "{boundary}");
+        assert!(boundary.contains("accept edits on"), "{boundary}");
+        assert!(!boundary.contains("\u{1b}[3A"), "{boundary}");
+        assert!(!boundary.contains('\r'), "{boundary}");
+    }
+
+    #[test]
+    fn repl_input_boundary_fallback_expands_for_full_hint_text() {
+        let divider_width = super::repl_input_boundary_width(None);
+        let boundary = super::format_repl_input_boundary_with_width(divider_width);
+        let divider_width = boundary
+            .lines()
+            .find(|line| !line.is_empty() && line.chars().all(|ch| ch == '─'))
+            .map(|line| line.chars().count())
+            .expect("divider should exist");
+        let hint_line = boundary
+            .lines()
+            .find(|line| line.starts_with(super::REPL_INPUT_HINT_PREFIX))
+            .expect("hint line should exist");
+        assert!(boundary.contains(super::REPL_INPUT_HINT_LINE), "{boundary}");
+        assert!(hint_line.chars().count() <= divider_width, "{boundary}");
+    }
+
+    #[test]
+    fn repl_input_boundary_truncates_hint_for_narrow_columns() {
+        let divider_width = super::repl_input_boundary_width(Some(40));
+        let boundary = super::format_repl_input_boundary_with_width(divider_width);
+        let divider_width = boundary
+            .lines()
+            .find(|line| !line.is_empty() && line.chars().all(|ch| ch == '─'))
+            .map(|line| line.chars().count())
+            .expect("divider should exist");
+        let hint_line = boundary
+            .lines()
+            .find(|line| line.starts_with(super::REPL_INPUT_HINT_PREFIX))
+            .expect("hint line should exist");
+        assert_eq!(divider_width, 38, "{boundary}");
+        assert!(hint_line.chars().count() <= divider_width, "{boundary}");
+        assert!(hint_line.ends_with('…'), "{boundary}");
     }
 
     #[test]
@@ -11070,8 +11363,8 @@ UU conflicted.rs",
     }
 
     #[test]
-    fn repl_prompt_label_is_human_readable() {
-        assert_eq!(super::REPL_PROMPT_LABEL, "› Tu mensaje ");
+    fn repl_prompt_label_uses_simple_prompt_marker() {
+        assert_eq!(super::REPL_PROMPT_LABEL, "> ");
     }
 
     #[test]

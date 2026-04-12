@@ -1,0 +1,4 @@
+{"created_at_ms":1775845126343,"session_id":"session-1775845126343-0","type":"session_meta","updated_at_ms":1775845151875,"version":1}
+{"text":"hola","timestamp_ms":1775845139796,"type":"prompt_history"}
+{"message":{"blocks":[{"text":"hola","type":"text"}],"role":"user"},"type":"message"}
+{"message":{"blocks":[{"text":"Hola! ¿En qué puedo ayudarte con tu proyecto en Rust o cualquier otra tarea? 😊","type":"text"}],"role":"assistant","usage":{"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"input_tokens":2068,"output_tokens":291}},"type":"message"}
