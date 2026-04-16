@@ -10,3 +10,4 @@ archive/
 .agcli/settings.local.json
 .agcli/sessions/
 .claw/sessions/
+.worktrees/
