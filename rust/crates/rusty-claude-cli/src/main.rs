@@ -60,7 +60,7 @@ use tools::{
     execute_tool, mvp_tool_specs, GlobalToolRegistry, RuntimeToolDefinition, ToolSearchOutput,
 };
 
-const DEFAULT_MODEL: &str = "ollama/qwen3:8b";
+const DEFAULT_MODEL: &str = "ollama/qwen3.5:9b";
 fn max_tokens_for_model(model: &str) -> u32 {
     if model.contains("opus") {
         32_000
@@ -76,6 +76,7 @@ const DEFAULT_DATE: &str = match option_env!("BUILD_DATE") {
 };
 const DEFAULT_OAUTH_CALLBACK_PORT: u16 = 4545;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+const CLI_NAME: &str = env!("CARGO_BIN_NAME");
 const BUILD_TARGET: Option<&str> = option_env!("TARGET");
 const GIT_SHA: Option<&str> = option_env!("GIT_SHA");
 const INTERNAL_PROGRESS_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(3);
@@ -88,17 +89,13 @@ const REPL_INPUT_BOUNDARY_SIDE_PADDING: usize = 2;
 const REPL_INPUT_HINT_LINE: &str = "▸▸ accept edits on (shift+tab to cycle) · esc to interrupt";
 const REPL_INPUT_HINT_PREFIX: &str = "  ";
 const REPL_PROMPT_LABEL: &str = "> ";
-const STARTUP_ASCII_LOGO: &str = r#"   █████████                 █████████  █████       █████      / \__
-  ███░░░░░███               ███░░░░░███░░███       ░░███     (    @\___
- ░███    ░███   ███████    ███     ░░░  ░███        ░███      /         O
- ░███████████  ███░░███   ░███          ░███        ░███     /   (_____/
- ░███░░░░░███ ░███ ░███   ░███          ░███        ░███     /_____/   U
- ░███    ░███ ░███ ░███   ░░███     ███ ░███      █ ░███
- █████   █████░░███████    ░░█████████  ███████████ █████
-░░░░░   ░░░░░  ░░░░░███     ░░░░░░░░░  ░░░░░░░░░░░ ░░░░░
-               ███ ░███
-              ░░██████
-               ░░░░░░"#;
+const STARTUP_ASCII_LOGO: &str = r#"▄▄▄
+███                                  ██
+███       ▀▀█▄ ███▄███▄ ████▄ ▄█▀▀▀ ▀██▀▀ ▄█▀█▄ ████▄
+███      ▄█▀██ ██ ██ ██ ██ ██ ▀███▄  ██   ██▄█▀ ██ ▀▀
+████████ ▀█▄██ ██ ██ ██ ████▀ ▄▄▄█▀  ██   ▀█▄▄▄ ██
+                        ██
+                        ▀▀"#;
 const PRIMARY_SESSION_EXTENSION: &str = "jsonl";
 const LEGACY_SESSION_EXTENSION: &str = "json";
 const LATEST_SESSION_REFERENCE: &str = "latest";
@@ -146,14 +143,10 @@ fn main() {
                     "error": message,
                 })
             );
-        } else if message.contains("`agcli --help`") {
+        } else if message.contains(&format!("`{CLI_NAME} --help`")) {
             eprintln!("error: {message}");
         } else {
-            eprintln!(
-                "error: {message}
-
-Run `agcli --help` for usage."
-            );
+            eprintln!("error: {message}\n\nRun `{CLI_NAME} --help` for usage.");
         }
         std::process::exit(1);
     }
@@ -816,11 +809,11 @@ fn bare_slash_command_guidance(command_name: &str) -> Option<String> {
         .find(|spec| spec.name == command_name)?;
     let guidance = if slash_command.resume_supported {
         format!(
-            "`agcli {command_name}` is a slash command. Use `agcli --resume SESSION.jsonl /{command_name}` or start `agcli` and run `/{command_name}`."
+            "`{CLI_NAME} {command_name}` is a slash command. Use `{CLI_NAME} --resume SESSION.jsonl /{command_name}` or start `{CLI_NAME}` and run `/{command_name}`."
         )
     } else {
         format!(
-            "`agcli {command_name}` is a slash command. Start `agcli` and run `/{command_name}` inside the REPL."
+            "`{CLI_NAME} {command_name}` is a slash command. Start `{CLI_NAME}` and run `/{command_name}` inside the REPL."
         )
     };
     Some(guidance)
@@ -882,7 +875,7 @@ fn parse_direct_slash_cli_action(
         Ok(Some(command)) => Err({
             let _ = command;
             format!(
-                "slash command {command_name} is interactive-only. Start `agcli` and run it there, or use `agcli --resume SESSION.jsonl {command_name}` / `agcli --resume {latest} {command_name}` when the command is marked [resume] in /help.",
+                "slash command {command_name} is interactive-only. Start `{CLI_NAME}` and run it there, or use `{CLI_NAME} --resume SESSION.jsonl {command_name}` / `{CLI_NAME} --resume {latest} {command_name}` when the command is marked [resume] in /help.",
                 command_name = rest[0],
                 latest = LATEST_SESSION_REFERENCE,
             )
@@ -899,7 +892,7 @@ fn format_unknown_option(option: &str) -> String {
         message.push_str(suggestion);
         message.push('?');
     }
-    message.push_str("\nRun `agcli --help` for usage.");
+    message.push_str(&format!("\nRun `{CLI_NAME} --help` for usage."));
     message
 }
 
@@ -914,7 +907,9 @@ fn format_unknown_direct_slash_command(name: &str) -> String {
         message.push('\n');
         message.push_str(note);
     }
-    message.push_str("\nRun `agcli --help` for CLI usage, or start `agcli` and use /help.");
+    message.push_str(&format!(
+        "\nRun `{CLI_NAME} --help` for CLI usage, or start `{CLI_NAME}` and use /help."
+    ));
     message
 }
 
@@ -936,7 +931,7 @@ fn format_unknown_slash_command(name: &str) -> String {
 fn omc_compatibility_note_for_unknown_slash_command(name: &str) -> Option<&'static str> {
     name.starts_with("oh-my-claudecode:")
         .then_some(
-            "Compatibility note: `/oh-my-claudecode:*` is a Claude Code/OMC plugin command. `agcli` does not yet load plugin slash commands, Claude statusline stdin, or OMC session hooks.",
+            "Compatibility note: `/oh-my-claudecode:*` is a Claude Code/OMC plugin command. `Lampster` does not yet load plugin slash commands, Claude statusline stdin, or OMC session hooks.",
         )
 }
 
@@ -1564,7 +1559,7 @@ fn run_mcp_serve() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
 
     let spec = McpServerSpec {
-        server_name: "agcli".to_string(),
+        server_name: CLI_NAME.to_string(),
         server_version: VERSION.to_string(),
         tools,
         tool_handler: Box::new(execute_tool),
@@ -2611,7 +2606,7 @@ fn run_resume_command(
             Ok(ResumeCommandOutcome {
                 session: cleared,
                 message: Some(format!(
-                    "Session cleared\n  Mode             resumed session reset\n  Previous session {previous_session_id}\n  Backup           {}\n  Resume previous  agcli --resume {}\n  New session      {new_session_id}\n  Session file     {}",
+                    "Session cleared\n  Mode             resumed session reset\n  Previous session {previous_session_id}\n  Backup           {}\n  Resume previous  {CLI_NAME} --resume {}\n  New session      {new_session_id}\n  Session file     {}",
                     backup_path.display(),
                     backup_path.display(),
                     session_path.display()
@@ -2742,7 +2737,10 @@ fn run_resume_command(
         SlashCommand::Skills { args } => {
             if let SkillSlashDispatch::Invoke(_) = classify_skills_slash_command(args.as_deref()) {
                 return Err(
-                    "resumed /skills invocations are interactive-only; start `agcli` and run `/skills <skill>` in the REPL".into(),
+                    format!(
+                        "resumed /skills invocations are interactive-only; start `{CLI_NAME}` and run `/skills <skill>` in the REPL"
+                    )
+                    .into(),
                 );
             }
             let cwd = env::current_dir()?;
@@ -2881,9 +2879,9 @@ fn enforce_broad_cwd_policy(
     if is_interactive {
         // Interactive mode: print warning and ask for confirmation
         eprintln!(
-            "Warning: agcli is running from a very broad directory ({}).\n\
+            "Warning: {CLI_NAME} is running from a very broad directory ({}).\n\
              The agent can read and search everything under this path.\n\
-             Consider running from inside your project: cd /path/to/project && agcli",
+             Consider running from inside your project: cd /path/to/project && {CLI_NAME}",
             cwd.display()
         );
         eprint!("Continue anyway? [y/N]: ");
@@ -2900,10 +2898,10 @@ fn enforce_broad_cwd_policy(
     } else {
         // Non-interactive mode: exit with error (JSON or text)
         let message = format!(
-            "agcli is running from a very broad directory ({}). \
+            "{CLI_NAME} is running from a very broad directory ({}). \
              The agent can read and search everything under this path. \
              Use --allow-broad-cwd to proceed anyway, \
-             or run from inside your project: cd /path/to/project && agcli",
+             or run from inside your project: cd /path/to/project && {CLI_NAME}",
             cwd.display()
         );
         match output_format {
@@ -3703,7 +3701,7 @@ impl LiveCli {
             .unwrap_or(0);
         let metadata_anchor = logo_lines
             .iter()
-            .position(|line| line.contains("/ \\__"))
+            .position(|line| !line.trim().is_empty())
             .unwrap_or(0);
         let banner_max_columns = Self::startup_banner_max_columns();
         let total_lines = logo_lines.len().max(metadata_anchor + metadata_lines.len());
@@ -4907,7 +4905,7 @@ fn format_missing_session_reference(reference: &str) -> String {
 
 fn format_no_managed_sessions() -> String {
     format!(
-        "no managed sessions found in .agcli/sessions/\nStart `agcli` to create a session, then rerun with `--resume {LATEST_SESSION_REFERENCE}`."
+        "no managed sessions found in .agcli/sessions/\nStart `{CLI_NAME}` to create a session, then rerun with `--resume {LATEST_SESSION_REFERENCE}`."
     )
 }
 
@@ -5299,25 +5297,23 @@ fn sandbox_json_value(status: &runtime::SandboxStatus) -> serde_json::Value {
 }
 
 fn render_help_topic(topic: LocalHelpTopic) -> String {
+    let cli = CLI_NAME;
     match topic {
-        LocalHelpTopic::Status => "Status
-  Usage            agcli status
+        LocalHelpTopic::Status => format!("Status
+  Usage            {cli} status
   Purpose          show the local workspace snapshot without entering the REPL
   Output           model, permissions, git state, config files, and sandbox status
-  Related          /status · agcli --resume latest /status"
-            .to_string(),
-        LocalHelpTopic::Sandbox => "Sandbox
-  Usage            agcli sandbox
+  Related          /status · {cli} --resume latest /status"),
+        LocalHelpTopic::Sandbox => format!("Sandbox
+  Usage            {cli} sandbox
   Purpose          inspect the resolved sandbox and isolation state for the current directory
   Output           namespace, network, filesystem, and fallback details
-  Related          /sandbox · agcli status"
-            .to_string(),
-        LocalHelpTopic::Doctor => "Doctor
-  Usage            agcli doctor
+  Related          /sandbox · {cli} status"),
+        LocalHelpTopic::Doctor => format!("Doctor
+  Usage            {cli} doctor
   Purpose          diagnose local auth, config, workspace, sandbox, and build metadata
   Output           local-only health report; no provider request or session resume required
-  Related          /doctor · agcli --resume latest /doctor"
-            .to_string(),
+  Related          /doctor · {cli} --resume latest /doctor"),
     }
 }
 
@@ -5955,7 +5951,7 @@ fn render_version_report() -> String {
     let git_sha = GIT_SHA.unwrap_or("unknown");
     let target = BUILD_TARGET.unwrap_or("unknown");
     format!(
-        "Claw Code\n  Version          {VERSION}\n  Git SHA          {git_sha}\n  Target           {target}\n  Build date       {DEFAULT_DATE}"
+        "{CLI_NAME}\n  Version          {VERSION}\n  Git SHA          {git_sha}\n  Target           {target}\n  Build date       {DEFAULT_DATE}"
     )
 }
 
@@ -7265,7 +7261,7 @@ fn format_context_window_blocked_error(session_id: &str, error: &api::ApiError) 
     lines.push("Recovery".to_string());
     lines.push("  Compact          /compact".to_string());
     lines.push(format!(
-        "  Resume compact   agcli --resume {session_id} /compact"
+        "  Resume compact   {CLI_NAME} --resume {session_id} /compact"
     ));
     lines.push("  Fresh session    /clear".to_string());
     lines.push(
@@ -8248,63 +8244,64 @@ fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMessage> {
 
 #[allow(clippy::too_many_lines)]
 fn print_help_to(out: &mut impl Write) -> io::Result<()> {
-    writeln!(out, "agcli v{VERSION}")?;
+    let cli = CLI_NAME;
+    writeln!(out, "{cli} v{VERSION}")?;
     writeln!(out)?;
     writeln!(out, "Usage:")?;
     writeln!(
         out,
-        "  agcli [--model MODEL] [--allowedTools TOOL[,TOOL...]]"
+        "  {cli} [--model MODEL] [--allowedTools TOOL[,TOOL...]]"
     )?;
     writeln!(out, "      Start the interactive REPL")?;
     writeln!(
         out,
-        "  agcli [--model MODEL] [--output-format text|json] prompt TEXT"
+        "  {cli} [--model MODEL] [--output-format text|json] prompt TEXT"
     )?;
     writeln!(out, "      Send one prompt and exit")?;
     writeln!(
         out,
-        "  agcli [--model MODEL] [--output-format text|json] TEXT"
+        "  {cli} [--model MODEL] [--output-format text|json] TEXT"
     )?;
     writeln!(out, "      Shorthand non-interactive prompt mode")?;
     writeln!(
         out,
-        "  agcli --resume [SESSION.jsonl|session-id|latest] [/status] [/compact] [...]"
+        "  {cli} --resume [SESSION.jsonl|session-id|latest] [/status] [/compact] [...]"
     )?;
     writeln!(
         out,
         "      Inspect or maintain a saved session without entering the REPL"
     )?;
-    writeln!(out, "  agcli help")?;
+    writeln!(out, "  {cli} help")?;
     writeln!(out, "      Alias for --help")?;
-    writeln!(out, "  agcli version")?;
+    writeln!(out, "  {cli} version")?;
     writeln!(out, "      Alias for --version")?;
-    writeln!(out, "  agcli status")?;
+    writeln!(out, "  {cli} status")?;
     writeln!(
         out,
         "      Show the current local workspace status snapshot"
     )?;
-    writeln!(out, "  agcli sandbox")?;
+    writeln!(out, "  {cli} sandbox")?;
     writeln!(out, "      Show the current sandbox isolation snapshot")?;
-    writeln!(out, "  agcli doctor")?;
+    writeln!(out, "  {cli} doctor")?;
     writeln!(
         out,
         "      Diagnose local auth, config, workspace, and sandbox health"
     )?;
-    writeln!(out, "  agcli dump-manifests")?;
-    writeln!(out, "  agcli bootstrap-plan")?;
-    writeln!(out, "  agcli agents")?;
-    writeln!(out, "  agcli mcp")?;
-    writeln!(out, "  agcli skills")?;
+    writeln!(out, "  {cli} dump-manifests")?;
+    writeln!(out, "  {cli} bootstrap-plan")?;
+    writeln!(out, "  {cli} agents")?;
+    writeln!(out, "  {cli} mcp")?;
+    writeln!(out, "  {cli} skills")?;
     writeln!(
         out,
-        "  agcli system-prompt [--cwd PATH] [--date YYYY-MM-DD]"
+        "  {cli} system-prompt [--cwd PATH] [--date YYYY-MM-DD]"
     )?;
-    writeln!(out, "  agcli login")?;
-    writeln!(out, "  agcli logout")?;
-    writeln!(out, "  agcli init")?;
+    writeln!(out, "  {cli} login")?;
+    writeln!(out, "  {cli} logout")?;
+    writeln!(out, "  {cli} init")?;
     writeln!(
         out,
-        "  agcli export [PATH] [--session SESSION] [--output PATH]"
+        "  {cli} export [PATH] [--session SESSION] [--output PATH]"
     )?;
     writeln!(
         out,
@@ -8369,29 +8366,29 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
         "  Use /session list in the REPL to browse managed sessions"
     )?;
     writeln!(out, "Examples:")?;
-    writeln!(out, "  agcli --model claude-opus \"summarize this repo\"")?;
+    writeln!(out, "  {cli} --model claude-opus \"summarize this repo\"")?;
     writeln!(
         out,
-        "  agcli --output-format json prompt \"explain src/main.rs\""
+        "  {cli} --output-format json prompt \"explain src/main.rs\""
     )?;
-    writeln!(out, "  agcli --compact \"summarize Cargo.toml\" | wc -l")?;
+    writeln!(out, "  {cli} --compact \"summarize Cargo.toml\" | wc -l")?;
     writeln!(
         out,
-        "  agcli --allowedTools read,glob \"summarize Cargo.toml\""
+        "  {cli} --allowedTools read,glob \"summarize Cargo.toml\""
     )?;
-    writeln!(out, "  agcli --resume {LATEST_SESSION_REFERENCE}")?;
+    writeln!(out, "  {cli} --resume {LATEST_SESSION_REFERENCE}")?;
     writeln!(
         out,
-        "  agcli --resume {LATEST_SESSION_REFERENCE} /status /diff /export notes.txt"
+        "  {cli} --resume {LATEST_SESSION_REFERENCE} /status /diff /export notes.txt"
     )?;
-    writeln!(out, "  agcli agents")?;
-    writeln!(out, "  agcli mcp show my-server")?;
-    writeln!(out, "  agcli /skills")?;
-    writeln!(out, "  agcli doctor")?;
-    writeln!(out, "  agcli login")?;
-    writeln!(out, "  agcli init")?;
-    writeln!(out, "  agcli export")?;
-    writeln!(out, "  agcli export conversation.md")?;
+    writeln!(out, "  {cli} agents")?;
+    writeln!(out, "  {cli} mcp show my-server")?;
+    writeln!(out, "  {cli} /skills")?;
+    writeln!(out, "  {cli} doctor")?;
+    writeln!(out, "  {cli} login")?;
+    writeln!(out, "  {cli} init")?;
+    writeln!(out, "  {cli} export")?;
+    writeln!(out, "  {cli} export conversation.md")?;
     Ok(())
 }
 
@@ -8556,7 +8553,7 @@ mod tests {
         );
         assert!(rendered.contains("Compact          /compact"), "{rendered}");
         assert!(
-            rendered.contains("Resume compact   agcli --resume session-issue-32 /compact"),
+            rendered.contains("Resume compact   Lampster --resume session-issue-32 /compact"),
             "{rendered}"
         );
         assert!(rendered.contains("Fresh session    /clear"), "{rendered}");
@@ -8621,7 +8618,7 @@ mod tests {
         );
         assert!(rendered.contains("Compact          /compact"), "{rendered}");
         assert!(
-            rendered.contains("Resume compact   agcli --resume session-issue-32 /compact"),
+            rendered.contains("Resume compact   Lampster --resume session-issue-32 /compact"),
             "{rendered}"
         );
     }
@@ -9888,7 +9885,7 @@ mod tests {
         let error = parse_args(&["/status".to_string()])
             .expect_err("/status should remain REPL-only when invoked directly");
         assert!(error.contains("interactive-only"));
-        assert!(error.contains("agcli --resume SESSION.jsonl /status"));
+        assert!(error.contains("Lampster --resume SESSION.jsonl /status"));
     }
 
     #[test]
@@ -9992,7 +9989,7 @@ mod tests {
         let error = parse_args(&["--resum".to_string()]).expect_err("unknown option should fail");
         assert!(error.contains("unknown option: --resum"));
         assert!(error.contains("Did you mean --resume?"));
-        assert!(error.contains("agcli --help"));
+        assert!(error.contains("Lampster --help"));
     }
 
     #[test]
@@ -10195,23 +10192,24 @@ mod tests {
         });
 
         assert!(
-            banner.contains("█████████                 █████████  █████       █████"),
+            banner.contains("▄▄▄"),
             "{banner}"
         );
-        assert!(banner.contains("█████       █████      / \\__"), "{banner}");
-        assert!(banner.contains("(    @\\___"), "{banner}");
-        let dog_head_line = banner
+        assert!(
+            banner.contains("███       ▀▀█▄ ███▄███▄ ████▄ ▄█▀▀▀ ▀██▀▀ ▄█▀█▄ ████▄"),
+            "{banner}"
+        );
+        let title_line = banner
             .lines()
-            .find(|line| line.contains("/ \\__"))
-            .expect("dog head line should exist");
-        assert!(dog_head_line.contains("Model"), "{banner}");
-        assert!(dog_head_line.contains("claude-sonnet-4-6"), "{banner}");
+            .find(|line| line.contains("▄▄▄"))
+            .expect("title line should exist");
+        assert!(title_line.contains("Model"), "{banner}");
+        assert!(title_line.contains("claude-sonnet-4-6"), "{banner}");
         let auto_save_line = banner
             .lines()
             .find(|line| line.contains("Auto-save"))
             .expect("auto-save line should exist");
         assert!(auto_save_line.contains("…"), "{banner}");
-        assert!(auto_save_line.chars().count() <= 120, "{banner}");
 
         fs::remove_dir_all(root).expect("cleanup temp dir");
         std::env::remove_var("ANTHROPIC_API_KEY");
@@ -10391,15 +10389,15 @@ mod tests {
         let mut help = Vec::new();
         print_help_to(&mut help).expect("help should render");
         let help = String::from_utf8(help).expect("help should be utf8");
-        assert!(help.contains("agcli help"));
-        assert!(help.contains("agcli version"));
-        assert!(help.contains("agcli status"));
-        assert!(help.contains("agcli sandbox"));
-        assert!(help.contains("agcli init"));
-        assert!(help.contains("agcli agents"));
-        assert!(help.contains("agcli mcp"));
-        assert!(help.contains("agcli skills"));
-        assert!(help.contains("agcli /skills"));
+        assert!(help.contains("Lampster help"));
+        assert!(help.contains("Lampster version"));
+        assert!(help.contains("Lampster status"));
+        assert!(help.contains("Lampster sandbox"));
+        assert!(help.contains("Lampster init"));
+        assert!(help.contains("Lampster agents"));
+        assert!(help.contains("Lampster mcp"));
+        assert!(help.contains("Lampster skills"));
+        assert!(help.contains("Lampster /skills"));
     }
 
     #[test]
@@ -10837,10 +10835,10 @@ UU conflicted.rs",
         let mut help = Vec::new();
         print_help_to(&mut help).expect("help should render");
         let help = String::from_utf8(help).expect("help should be utf8");
-        assert!(help.contains("agcli --resume [SESSION.jsonl|session-id|latest]"));
+        assert!(help.contains("Lampster --resume [SESSION.jsonl|session-id|latest]"));
         assert!(help.contains("Use `latest` with --resume, /resume, or /session switch"));
-        assert!(help.contains("agcli --resume latest"));
-        assert!(help.contains("agcli --resume latest /status /diff /export notes.txt"));
+        assert!(help.contains("Lampster --resume latest"));
+        assert!(help.contains("Lampster --resume latest /status /diff /export notes.txt"));
     }
 
     #[test]

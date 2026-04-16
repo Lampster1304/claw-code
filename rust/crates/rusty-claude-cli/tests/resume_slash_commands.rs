@@ -57,7 +57,7 @@ fn resumed_binary_accepts_slash_commands_with_arguments() {
     assert!(stdout.contains("Mode             resumed session reset"));
     assert!(stdout.contains("Previous session"));
     assert!(
-        stdout.contains("Resume previous  agcli --resume")
+        stdout.contains("Resume previous  Lampster --resume")
             || stdout.contains("Resume previous  claw --resume")
     );
     assert!(stdout.contains("Backup           "));
@@ -329,7 +329,7 @@ fn run_claw(current_dir: &Path, args: &[&str]) -> Output {
 }
 
 fn run_claw_with_env(current_dir: &Path, args: &[&str], envs: &[(&str, &str)]) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_agcli"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_Lampster"));
     command.current_dir(current_dir).args(args);
     for (key, value) in envs {
         command.env(key, value);

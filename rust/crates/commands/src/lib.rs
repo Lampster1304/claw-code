@@ -11,6 +11,8 @@ use runtime::{
 };
 use serde_json::{json, Value};
 
+const CLI_NAME: &str = "Lampster";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandManifestEntry {
     pub name: String,
@@ -3609,7 +3611,7 @@ fn render_agents_usage(unexpected: Option<&str>) -> String {
     let mut lines = vec![
         "Agents".to_string(),
         "  Usage            /agents [list|help]".to_string(),
-        "  Direct CLI       agcli agents".to_string(),
+        format!("  Direct CLI       {CLI_NAME} agents"),
         "  Sources          .agcli/agents, ~/.agcli/agents, $AGCLI_CONFIG_HOME/agents".to_string(),
     ];
     if let Some(args) = unexpected {
@@ -3624,7 +3626,7 @@ fn render_agents_usage_json(unexpected: Option<&str>) -> Value {
         "action": "help",
         "usage": {
             "slash_command": "/agents [list|help]",
-            "direct_cli": "agcli agents [list|help]",
+            "direct_cli": format!("{CLI_NAME} agents [list|help]"),
             "sources": [".agcli/agents", "~/.agcli/agents", "$AGCLI_CONFIG_HOME/agents"],
         },
         "unexpected": unexpected,
@@ -3636,7 +3638,9 @@ fn render_skills_usage(unexpected: Option<&str>) -> String {
         "Skills".to_string(),
         "  Usage            /skills [list|install <path>|help|<skill> [args]]".to_string(),
         "  Alias            /skill".to_string(),
-        "  Direct CLI       agcli skills [list|install <path>|help|<skill> [args]]".to_string(),
+        format!(
+            "  Direct CLI       {CLI_NAME} skills [list|install <path>|help|<skill> [args]]"
+        ),
         "  Invoke           /skills help overview -> $help overview".to_string(),
         "  Install root     $AGCLI_CONFIG_HOME/skills or ~/.agcli/skills".to_string(),
         "  Sources          .agcli/skills, .omc/skills, .agents/skills, .codex/skills, .claude/skills, ~/.agcli/skills, ~/.omc/skills, ~/.claude/skills/omc-learned, ~/.codex/skills, ~/.claude/skills, legacy /commands".to_string(),
@@ -3654,7 +3658,7 @@ fn render_skills_usage_json(unexpected: Option<&str>) -> Value {
         "usage": {
             "slash_command": "/skills [list|install <path>|help|<skill> [args]]",
             "aliases": ["/skill"],
-            "direct_cli": "agcli skills [list|install <path>|help|<skill> [args]]",
+            "direct_cli": format!("{CLI_NAME} skills [list|install <path>|help|<skill> [args]]"),
             "invoke": "/skills help overview -> $help overview",
             "install_root": "$AGCLI_CONFIG_HOME/skills or ~/.agcli/skills",
             "sources": [
@@ -3680,7 +3684,7 @@ fn render_mcp_usage(unexpected: Option<&str>) -> String {
     let mut lines = vec![
         "MCP".to_string(),
         "  Usage            /mcp [list|show <server>|help]".to_string(),
-        "  Direct CLI       agcli mcp [list|show <server>|help]".to_string(),
+        format!("  Direct CLI       {CLI_NAME} mcp [list|show <server>|help]"),
         "  Sources          .agcli/settings.json, .agcli/settings.local.json".to_string(),
     ];
     if let Some(args) = unexpected {
@@ -3695,7 +3699,7 @@ fn render_mcp_usage_json(unexpected: Option<&str>) -> Value {
         "action": "help",
         "usage": {
             "slash_command": "/mcp [list|show <server>|help]",
-            "direct_cli": "agcli mcp [list|show <server>|help]",
+            "direct_cli": format!("{CLI_NAME} mcp [list|show <server>|help]"),
             "sources": [".agcli/settings.json", ".agcli/settings.local.json"],
         },
         "unexpected": unexpected,
@@ -4880,7 +4884,7 @@ mod tests {
         let help = handle_agents_slash_command_json(Some("help"), &workspace).expect("agents help");
         assert_eq!(help["kind"], "agents");
         assert_eq!(help["action"], "help");
-        assert_eq!(help["usage"]["direct_cli"], "agcli agents [list|help]");
+        assert_eq!(help["usage"]["direct_cli"], "Lampster agents [list|help]");
 
         let unexpected = handle_agents_slash_command_json(Some("show planner"), &workspace)
             .expect("agents usage");
@@ -5005,7 +5009,7 @@ mod tests {
         assert_eq!(help["usage"]["aliases"][0], "/skill");
         assert_eq!(
             help["usage"]["direct_cli"],
-            "agcli skills [list|install <path>|help|<skill> [args]]"
+            "Lampster skills [list|install <path>|help|<skill> [args]]"
         );
 
         let _ = fs::remove_dir_all(workspace);
@@ -5019,7 +5023,7 @@ mod tests {
         let agents_help =
             super::handle_agents_slash_command(Some("help"), &cwd).expect("agents help");
         assert!(agents_help.contains("Usage            /agents [list|help]"));
-        assert!(agents_help.contains("Direct CLI       agcli agents"));
+        assert!(agents_help.contains("Direct CLI       Lampster agents"));
         assert!(agents_help.contains(
             "Sources          .agcli/agents, ~/.agcli/agents, $AGCLI_CONFIG_HOME/agents"
         ));
@@ -5146,7 +5150,7 @@ mod tests {
 
         let help = super::handle_mcp_slash_command(Some("help"), &cwd).expect("mcp help");
         assert!(help.contains("Usage            /mcp [list|show <server>|help]"));
-        assert!(help.contains("Direct CLI       agcli mcp [list|show <server>|help]"));
+        assert!(help.contains("Direct CLI       Lampster mcp [list|show <server>|help]"));
 
         let unexpected =
             super::handle_mcp_slash_command(Some("show alpha beta"), &cwd).expect("mcp usage");
